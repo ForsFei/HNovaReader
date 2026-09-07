@@ -1,0 +1,819 @@
+<UserControl x:Class="HNovaReader.Features.Reader.ReaderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:data="clr-namespace:HNovaReader.Data.Entities"
+             xmlns:reader="clr-namespace:HNovaReader.Features.Reader"
+             xmlns:preferences="clr-namespace:HNovaReader.Services.Settings"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             PreviewKeyDown="OnPreviewKeyDown">
+    <UserControl.Resources>
+        <ContextMenu x:Key="ReaderSelectionMenu"
+                     x:Shared="False"
+                     Placement="MousePoint">
+            <MenuItem Header="高亮">
+                <MenuItem Click="OnHighlightSelectionClick"
+                          Header="柔和黄"
+                          Tag="{x:Static data:HighlightStyle.Yellow}" />
+                <MenuItem Click="OnHighlightSelectionClick"
+                          Header="静谧蓝"
+                          Tag="{x:Static data:HighlightStyle.Blue}" />
+                <MenuItem Click="OnHighlightSelectionClick"
+                          Header="青叶绿"
+                          Tag="{x:Static data:HighlightStyle.Green}" />
+            </MenuItem>
+            <MenuItem Click="OnAddNoteSelectionClick" Header="添加笔记" />
+            <Separator />
+            <MenuItem Click="OnCopySelectionClick" Header="复制" />
+        </ContextMenu>
+    </UserControl.Resources>
+    <UserControl.InputBindings>
+        <KeyBinding Key="L"
+                    Modifiers="Control+Shift"
+                    Command="{Binding ToggleCatalogCommand}" />
+    </UserControl.InputBindings>
+
+    <Grid Background="{DynamicResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="58" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="4" />
+        </Grid.RowDefinitions>
+
+        <Border BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                    <Button Command="{Binding DataContext.GoBackCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            Content="←"
+                            Style="{StaticResource HNova.IconButton}"
+                            ToolTip="返回书库" />
+                    <Button Margin="6,0,0,0"
+                            Command="{Binding ToggleCatalogCommand}"
+                            Content="☷"
+                            Style="{StaticResource HNova.IconButton}"
+                            ToolTip="显示或隐藏目录（Ctrl+Shift+L）" />
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock MaxWidth="320"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding BookTitle}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Margin="0,2,0,0"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   Text="{Binding Author}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                    <TextBlock HorizontalAlignment="Center"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Text="{Binding CurrentChapterTitle}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Margin="0,2,0,0"
+                               HorizontalAlignment="Center"
+                               FontSize="10"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               Text="{Binding ReadingLayoutText}" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2"
+                             VerticalAlignment="Center"
+                             Orientation="Horizontal">
+                    <Button Width="62"
+                            Height="32"
+                            Margin="0,0,6,0"
+                            Padding="0"
+                            Command="{Binding BeginEditCommand}"
+                            Content="编辑"
+                            ToolTip="编辑当前加载的 TXT 片段">
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource HNova.SecondaryButton}" TargetType="Button">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsEditMode}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Width="62"
+                            Height="32"
+                            Margin="0,0,6,0"
+                            Padding="0"
+                            Command="{Binding CancelEditCommand}"
+                            Content="取消">
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource HNova.SecondaryButton}" TargetType="Button">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsEditMode}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Width="62"
+                            Height="32"
+                            Margin="0,0,8,0"
+                            Padding="0"
+                            Command="{Binding SaveEditCommand}"
+                            Content="保存">
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource HNova.PrimaryButton}" TargetType="Button">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsEditMode}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Width="76"
+                            Height="32"
+                            Margin="0,0,10,0"
+                            Padding="0"
+                            Content="{Binding ReaderThemeDisplay, StringFormat={}{0} ▾}"
+                            Click="OnReaderThemeMenuClick"
+                            Style="{StaticResource HNova.SecondaryButton}"
+                            ToolTip="切换阅读器主题">
+                        <Button.ContextMenu>
+                            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                <MenuItem Command="{Binding ApplyReaderThemeCommand}"
+                                          CommandParameter="{x:Static preferences:ReaderTheme.Light}"
+                                          Header="浅色" />
+                                <MenuItem Command="{Binding ApplyReaderThemeCommand}"
+                                          CommandParameter="{x:Static preferences:ReaderTheme.Dark}"
+                                          Header="深色" />
+                                <MenuItem Command="{Binding ApplyReaderThemeCommand}"
+                                          CommandParameter="{x:Static preferences:ReaderTheme.Sepia}"
+                                          Header="Sepia / 护眼" />
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <Button Width="58"
+                            Height="32"
+                            Padding="0"
+                            Command="{Binding UseScrollLayoutCommand}"
+                            Content="Scroll"
+                            ToolTip="连续滚动阅读">
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource HNova.ButtonBase}" TargetType="Button">
+                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ReadingLayoutMode}"
+                                                 Value="{x:Static reader:ReaderLayoutMode.Scroll}">
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Width="58"
+                            Height="32"
+                            Margin="4,0,12,0"
+                            Padding="0"
+                            Command="{Binding UsePagedLayoutCommand}"
+                            Content="Paged"
+                            ToolTip="分页阅读">
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource HNova.ButtonBase}" TargetType="Button">
+                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ReadingLayoutMode}"
+                                                 Value="{x:Static reader:ReaderLayoutMode.Paged}">
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Command="{Binding DecreaseFontSizeCommand}"
+                            Content="A−"
+                            Style="{StaticResource HNova.IconButton}"
+                            ToolTip="减小字号" />
+                    <TextBlock Width="34"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               Text="{Binding ReaderFontSize, StringFormat={}{0:0}}"
+                               TextAlignment="Center" />
+                    <Button Command="{Binding IncreaseFontSizeCommand}"
+                            Content="A+"
+                            Style="{StaticResource HNova.IconButton}"
+                            ToolTip="增大字号" />
+                    <Button Margin="7,0,0,0"
+                            Command="{Binding ToggleAnnotationsCommand}"
+                            Content="✎"
+                            Style="{StaticResource HNova.IconButton}"
+                            ToolTip="显示或隐藏标注栏" />
+                    <Button Margin="7,0,0,0"
+                            Command="{Binding ToggleFocusModeCommand}"
+                            Content="◎"
+                            Style="{StaticResource HNova.IconButton}"
+                            ToolTip="专注模式" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Border Width="280"
+                    Background="{DynamicResource SidebarBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="0,0,1,0">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsCatalogVisible}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid Margin="18,20,14,16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               Text="目录" />
+                    <TextBlock Grid.Row="1"
+                               Margin="0,7,0,14"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               Text="{Binding IndexStatus}"
+                               TextWrapping="Wrap" />
+                    <ListBox Grid.Row="2"
+                             ItemsSource="{Binding Chapters}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.CanContentScroll="True"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Button Margin="0,1"
+                                        Padding="10,8"
+                                        HorizontalContentAlignment="Left"
+                                        Command="{Binding DataContext.JumpToChapterCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Content="{Binding Title}"
+                                        Style="{StaticResource HNova.NavigationButton}"
+                                        ToolTip="{Binding Title}" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1">
+                <RichTextBox x:Name="ReaderBox"
+                             Padding="0"
+                             Background="{DynamicResource AppBackgroundBrush}"
+                             BorderThickness="0"
+                             CaretBrush="Transparent"
+                             ContextMenu="{StaticResource ReaderSelectionMenu}"
+                             ContextMenuOpening="OnSelectionContextMenuOpening"
+                             FontFamily="{Binding ReaderFontFamily}"
+                             FontSize="{Binding ReaderFontSize}"
+                             IsDocumentEnabled="True"
+                             IsReadOnly="True"
+                             PreviewMouseLeftButtonUp="OnSelectionMouseUp"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.ScrollChanged="OnReaderScrollChanged"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             SelectionBrush="{DynamicResource FocusBrush}">
+                    <RichTextBox.Style>
+                        <Style TargetType="RichTextBox">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding ReadingLayoutMode}"
+                                                   Value="{x:Static reader:ReaderLayoutMode.Scroll}" />
+                                        <Condition Binding="{Binding IsEditMode}" Value="False" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </RichTextBox.Style>
+                </RichTextBox>
+
+                <FlowDocumentPageViewer x:Name="PagedReader"
+                                        Background="{DynamicResource AppBackgroundBrush}"
+                                        BorderThickness="0"
+                                        ContextMenu="{StaticResource ReaderSelectionMenu}"
+                                        ContextMenuOpening="OnSelectionContextMenuOpening"
+                                        IsInactiveSelectionHighlightEnabled="True"
+                                        PageViewsChanged="OnPagedPageViewsChanged"
+                                        PreviewMouseLeftButtonUp="OnSelectionMouseUp"
+                                        SelectionBrush="{DynamicResource FocusBrush}"
+                                        SizeChanged="OnPagedReaderSizeChanged"
+                                        Zoom="100">
+                    <FlowDocumentPageViewer.Style>
+                        <Style TargetType="FlowDocumentPageViewer">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding ReadingLayoutMode}"
+                                                   Value="{x:Static reader:ReaderLayoutMode.Paged}" />
+                                        <Condition Binding="{Binding IsEditMode}" Value="False" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </FlowDocumentPageViewer.Style>
+                </FlowDocumentPageViewer>
+
+                <Border Margin="26,22"
+                        Padding="18"
+                        Panel.ZIndex="4"
+                        Background="{DynamicResource SurfaceRaisedBrush}"
+                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsEditMode}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Margin="2,0,0,10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="编辑当前加载片段 · 保存会直接修改 TXT 文件" />
+                        <TextBox x:Name="ReaderEditor"
+                                 Grid.Row="1"
+                                 Padding="18"
+                                 AcceptsReturn="True"
+                                 AcceptsTab="True"
+                                 BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                 BorderThickness="1"
+                                 FontFamily="{Binding ReaderFontFamily}"
+                                 FontSize="{Binding ReaderFontSize}"
+                                 IsReadOnly="{Binding IsSavingEdit}"
+                                 MaxLength="{x:Static reader:ReaderViewModel.MaxEditCharacterCount}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 SpellCheck.IsEnabled="False"
+                                 Text="{Binding EditText, UpdateSourceTrigger=PropertyChanged}"
+                                 TextWrapping="Wrap" />
+                        <Grid Grid.Row="2" Margin="2,10,2,0">
+                            <TextBlock Foreground="{DynamicResource TextMutedBrush}"
+                                       Text="{Binding EditStatusMessage}" />
+                            <TextBlock HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Text="{Binding EditCharacterCountText}" />
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <Border Margin="0,0,0,18"
+                        Padding="8,5"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        Panel.ZIndex="3"
+                        Background="{DynamicResource SurfaceRaisedBrush}"
+                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                        BorderThickness="1"
+                        CornerRadius="9">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding ReadingLayoutMode}"
+                                                   Value="{x:Static reader:ReaderLayoutMode.Paged}" />
+                                        <Condition Binding="{Binding IsEditMode}" Value="False" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="PreviousPageButton"
+                                Width="34"
+                                Height="30"
+                                Padding="0"
+                                Click="OnPreviousPageClick"
+                                Content="←"
+                                Style="{StaticResource HNova.IconButton}"
+                                ToolTip="上一页（← / PageUp）" />
+                        <TextBlock x:Name="PageStatusText"
+                                   MinWidth="88"
+                                   Margin="8,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="正在分页…"
+                                   TextAlignment="Center" />
+                        <Button x:Name="NextPageButton"
+                                Width="34"
+                                Height="30"
+                                Padding="0"
+                                Click="OnNextPageClick"
+                                Content="→"
+                                Style="{StaticResource HNova.IconButton}"
+                                ToolTip="下一页（→ / PageDown）" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Margin="24,18,42,0"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            IsHitTestVisible="False">
+                    <Border MaxWidth="520"
+                            Padding="12,8"
+                            Background="{DynamicResource SurfaceRaisedBrush}"
+                            BorderBrush="{DynamicResource DangerBrush}"
+                            BorderThickness="1"
+                            CornerRadius="7">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Foreground="{DynamicResource DangerBrush}"
+                                   Text="{Binding ErrorMessage}"
+                                   TextWrapping="Wrap" />
+                    </Border>
+                    <Border MaxWidth="520"
+                            Margin="0,8,0,0"
+                            Padding="12,8"
+                            Background="{DynamicResource SurfaceRaisedBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="7">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding WarningMessage}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding WarningMessage}"
+                                   TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+
+                <ProgressBar Height="2"
+                             VerticalAlignment="Top"
+                             IsIndeterminate="True">
+                    <ProgressBar.Style>
+                        <Style TargetType="ProgressBar">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsLoadingText}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ProgressBar.Style>
+                </ProgressBar>
+            </Grid>
+
+            <Border Grid.Column="2"
+                    Width="310"
+                    Background="{DynamicResource SidebarBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="1,0,0,0">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsAnnotationsVisible}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid Margin="16,18,12,14">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+                        <TextBlock FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   Text="阅读信息" />
+                        <TextBlock Margin="0,9,0,0"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding CurrentChapterTitle}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Margin="0,5,0,0"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding ProgressText}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" Margin="0,12,0,0" Orientation="Horizontal">
+                        <Button Padding="10,6"
+                                Command="{Binding AddBookmarkCommand}"
+                                Content="＋ 书签"
+                                Style="{StaticResource HNova.ButtonBase}" />
+                        <Button Margin="7,0,0,0"
+                                Padding="10,6"
+                                Command="{Binding BeginPositionNoteCommand}"
+                                Content="＋ 位置笔记"
+                                Style="{StaticResource HNova.ButtonBase}" />
+                    </StackPanel>
+
+                    <Border Grid.Row="2"
+                            Margin="0,12,0,0"
+                            Padding="10"
+                            Background="{DynamicResource SurfaceRaisedBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="7">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsNoteEditorVisible}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <TextBlock FontSize="11"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Text="{Binding NoteDraftPreview}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBox MinHeight="76"
+                                     Margin="0,8,0,0"
+                                     Padding="7"
+                                     AcceptsReturn="True"
+                                     Text="{Binding NoteDraftText, UpdateSourceTrigger=PropertyChanged}"
+                                     TextWrapping="Wrap" />
+                            <StackPanel Margin="0,8,0,0"
+                                        HorizontalAlignment="Right"
+                                        Orientation="Horizontal">
+                                <Button Padding="10,5"
+                                        Command="{Binding CancelNoteCommand}"
+                                        Content="取消"
+                                        Style="{StaticResource HNova.ButtonBase}" />
+                                <Button Margin="6,0,0,0"
+                                        Padding="10,5"
+                                        Command="{Binding SaveNoteCommand}"
+                                        Content="保存"
+                                        Style="{StaticResource HNova.ButtonBase}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TabControl Grid.Row="3" Margin="0,14,0,0">
+                        <TabItem Header="书签">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Bookmarks}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,5,8"
+                                                    Padding="9"
+                                                    Background="{DynamicResource SurfaceRaisedBrush}"
+                                                    CornerRadius="6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button HorizontalContentAlignment="Left"
+                                                            Background="Transparent"
+                                                            BorderThickness="0"
+                                                            Command="{Binding DataContext.JumpToBookmarkCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}">
+                                                        <StackPanel>
+                                                            <TextBlock FontWeight="SemiBold"
+                                                                       Text="{Binding ChapterTitleSnapshot, TargetNullValue=正文}" />
+                                                            <TextBlock Margin="0,4,0,0"
+                                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                                       Text="{Binding PreviewText}"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Margin="0,4,0,0"
+                                                                       FontSize="10"
+                                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                                       Text="{Binding CreatedAtUtc, StringFormat={}{0:yyyy-MM-dd}}" />
+                                                            <TextBlock Margin="0,4,0,0"
+                                                                       FontSize="10"
+                                                                       Foreground="{DynamicResource DangerBrush}"
+                                                                       Text="需复核">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding NeedsReview}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Grid.Column="1"
+                                                            Width="26"
+                                                            Height="26"
+                                                            Padding="0"
+                                                            Command="{Binding DataContext.DeleteBookmarkCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            Content="×"
+                                                            Style="{StaticResource HNova.IconButton}" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="高亮">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Highlights}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,5,8"
+                                                    Padding="9"
+                                                    Background="{DynamicResource SurfaceRaisedBrush}"
+                                                    CornerRadius="6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button HorizontalContentAlignment="Left"
+                                                            Background="Transparent"
+                                                            BorderThickness="0"
+                                                            Command="{Binding DataContext.JumpToHighlightCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}">
+                                                        <StackPanel>
+                                                            <TextBlock Text="{Binding SelectedText}"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Margin="0,4,0,0"
+                                                                       FontSize="10"
+                                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                                       Text="{Binding Style}" />
+                                                            <TextBlock Margin="0,4,0,0"
+                                                                       FontSize="10"
+                                                                       Foreground="{DynamicResource DangerBrush}"
+                                                                       Text="需复核">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding NeedsReview}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Grid.Column="1"
+                                                            Width="26"
+                                                            Height="26"
+                                                            Padding="0"
+                                                            Command="{Binding DataContext.DeleteHighlightCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            Content="×"
+                                                            Style="{StaticResource HNova.IconButton}" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="笔记">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Notes}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,5,8"
+                                                    Padding="9"
+                                                    Background="{DynamicResource SurfaceRaisedBrush}"
+                                                    CornerRadius="6">
+                                                <StackPanel>
+                                                    <Button HorizontalContentAlignment="Left"
+                                                            Background="Transparent"
+                                                            BorderThickness="0"
+                                                            Command="{Binding DataContext.JumpToNoteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}">
+                                                        <StackPanel>
+                                                            <TextBlock FontSize="10"
+                                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                                       Text="{Binding PreviewText}"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Margin="0,5,0,0"
+                                                                       Text="{Binding Content}"
+                                                                       TextWrapping="Wrap" />
+                                                            <TextBlock Margin="0,4,0,0"
+                                                                       FontSize="10"
+                                                                       Foreground="{DynamicResource DangerBrush}"
+                                                                       Text="需复核">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding NeedsReview}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <StackPanel Margin="0,7,0,0"
+                                                                HorizontalAlignment="Right"
+                                                                Orientation="Horizontal">
+                                                        <Button Padding="7,3"
+                                                                Command="{Binding DataContext.EditNoteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="编辑"
+                                                                Style="{StaticResource HNova.ButtonBase}" />
+                                                        <Button Margin="5,0,0,0"
+                                                                Padding="7,3"
+                                                                Command="{Binding DataContext.DeleteNoteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="删除"
+                                                                Style="{StaticResource HNova.ButtonBase}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <ProgressBar Grid.Row="2"
+                     Maximum="1"
+                     Value="{Binding ReadingProgress}" />
+    </Grid>
+</UserControl>

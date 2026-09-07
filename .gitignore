@@ -1,0 +1,25 @@
+# Build output
+bin/
+obj/
+artifacts/
+
+# IDE state
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test output
+TestResults/
+coverage/
+
+# Local application data and databases
+*.db
+*.db-shm
+*.db-wal
+
+# OS files
+.DS_Store
+Thumbs.db

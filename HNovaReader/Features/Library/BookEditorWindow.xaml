@@ -1,0 +1,293 @@
+<Window x:Class="HNovaReader.Features.Library.BookEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:library="clr-namespace:HNovaReader.Features.Library"
+        Title="编辑书籍信息"
+        Icon="pack://application:,,,/Assets/HNovaReader.ico"
+        Width="860"
+        Height="760"
+        MinWidth="760"
+        MinHeight="660"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        ShowInTaskbar="False"
+        UseLayoutRounding="True"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <library:CoverImageConverter x:Key="CoverImageConverter" />
+
+        <Style x:Key="EditorCard"
+               BasedOn="{StaticResource HNova.Card}"
+               TargetType="Border">
+            <Setter Property="Padding" Value="20" />
+        </Style>
+
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,7" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+        </Style>
+
+        <Style x:Key="FieldHint" TargetType="TextBlock">
+            <Setter Property="Margin" Value="2,6,0,0" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Padding="30,24"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Width="5"
+                        Height="44"
+                        Margin="0,0,16,0"
+                        Background="{DynamicResource AccentBrush}"
+                        CornerRadius="3" />
+                <StackPanel Grid.Column="1">
+                    <TextBlock FontSize="24"
+                               FontWeight="SemiBold"
+                               Text="编辑书籍信息" />
+                    <TextBlock Margin="0,5,0,0"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               Text="集中维护书名、作者、系列、标签和封面" />
+                </StackPanel>
+                <Border Grid.Column="2"
+                        Padding="11,6"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource FocusBrush}"
+                        BorderBrush="{DynamicResource AccentBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12">
+                    <TextBlock Foreground="{DynamicResource AccentBrush}"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Text="TXT  METADATA" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <ScrollViewer Grid.Row="1"
+                      Padding="30,24"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="214" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <Border Style="{StaticResource EditorCard}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="书籍封面" />
+                            <TextBlock Margin="0,4,0,16"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="支持 JPG、PNG、WEBP 等常见图片" />
+
+                            <Border Width="164"
+                                    Height="226"
+                                    HorizontalAlignment="Center"
+                                    Background="{DynamicResource AccentBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    ClipToBounds="True">
+                                <Grid>
+                                    <Border Background="{DynamicResource FocusBrush}" />
+                                    <Path Width="118"
+                                          Height="118"
+                                          Margin="0,-32,-36,0"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Top"
+                                          Data="M 59,0 A 59,59 0 1 1 58.9,0"
+                                          Fill="{DynamicResource AccentForegroundBrush}"
+                                          Opacity="0.11" />
+                                    <StackPanel Margin="16"
+                                                VerticalAlignment="Bottom">
+                                        <TextBlock Foreground="{DynamicResource AccentForegroundBrush}"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"
+                                                   MaxHeight="72"
+                                                   Text="{Binding Title}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="Wrap" />
+                                        <Border Width="34"
+                                                Height="2"
+                                                Margin="0,11,0,0"
+                                                HorizontalAlignment="Left"
+                                                Background="{DynamicResource AccentForegroundBrush}" />
+                                    </StackPanel>
+                                    <Image Source="{Binding CoverPreviewPath, Converter={StaticResource CoverImageConverter}}"
+                                           Stretch="UniformToFill" />
+                                </Grid>
+                            </Border>
+
+                            <TextBlock Margin="0,13,0,0"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       MaxWidth="170"
+                                       Text="{Binding CoverDisplayName}"
+                                       TextAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding CoverDisplayName}" />
+                            <Button Margin="0,16,0,0"
+                                    Command="{Binding ChooseCoverCommand}"
+                                    Content="选择新封面…"
+                                    Style="{StaticResource HNova.PrimaryButton}" />
+                            <Button Margin="0,8,0,0"
+                                    Command="{Binding RemoveCoverCommand}"
+                                    Content="恢复动态封面"
+                                    Style="{StaticResource HNova.SecondaryButton}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Margin="0,14,0,0"
+                            Padding="16"
+                            Style="{StaticResource EditorCard}">
+                        <CheckBox Content="★  加入收藏"
+                                  Foreground="{DynamicResource FavoriteBrush}"
+                                  FontWeight="SemiBold"
+                                  IsChecked="{Binding IsFavorite}" />
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <Border Style="{StaticResource EditorCard}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="基本信息" />
+                            <TextBlock Margin="0,4,0,18"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="这些信息会显示在书架、列表和搜索结果中" />
+
+                            <TextBlock Style="{StaticResource FieldLabel}" Text="书名 *" />
+                            <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Margin="0,16,0,7"
+                                       Style="{StaticResource FieldLabel}"
+                                       Text="作者" />
+                            <TextBox Text="{Binding AuthorName, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Margin="0,16,0,7"
+                                       Style="{StaticResource FieldLabel}"
+                                       Text="简介" />
+                            <TextBox Height="104"
+                                     AcceptsReturn="True"
+                                     Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
+                                     TextWrapping="Wrap"
+                                     VerticalContentAlignment="Top"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Margin="0,16,0,0" Style="{StaticResource EditorCard}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="分类与整理" />
+                            <TextBlock Margin="0,4,0,18"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="系列和标签都可以在这里一次完成" />
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="120" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="系列名称" />
+                                    <TextBox Text="{Binding SeriesName, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="系列序号" />
+                                    <TextBox Text="{Binding SeriesIndexText, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="例如 1、2 或 2.5" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Margin="0,17,0,7"
+                                       Style="{StaticResource FieldLabel}"
+                                       Text="标签" />
+                            <TextBox Text="{Binding TagsText, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Style="{StaticResource FieldHint}"
+                                       Text="多个标签可使用逗号、分号或换行分隔，重复标签会自动合并。" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Margin="0,16,0,0"
+                            Padding="16,13"
+                            Background="{DynamicResource SurfaceRaisedBrush}"
+                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Foreground="{DynamicResource AccentBrush}"
+                                       FontSize="17"
+                                       Text="ⓘ" />
+                            <TextBlock Grid.Column="1"
+                                       Margin="10,0,0,0"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="11"
+                                       Text="自定义封面会复制到 HNovaReader 的 Covers 目录；原图片不会被移动或删除。"
+                                       TextWrapping="Wrap" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <Border Grid.Row="2"
+                Padding="30,18"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextMutedBrush}"
+                           FontSize="11"
+                           Text="带 * 的字段为必填项" />
+                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                    <Button Width="92"
+                            Margin="0,0,10,0"
+                            Click="OnCancel"
+                            Content="取消"
+                            Style="{StaticResource HNova.SecondaryButton}" />
+                    <Button Width="108"
+                            Click="OnSave"
+                            Content="保存修改"
+                            IsDefault="True"
+                            Style="{StaticResource HNova.PrimaryButton}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

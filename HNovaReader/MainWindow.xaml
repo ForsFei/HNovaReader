@@ -1,0 +1,301 @@
+<Window x:Class="HNovaReader.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:library="clr-namespace:HNovaReader.Features.Library"
+        xmlns:reader="clr-namespace:HNovaReader.Features.Reader"
+        xmlns:settings="clr-namespace:HNovaReader.Features.Settings"
+        xmlns:navigation="clr-namespace:HNovaReader.Infrastructure.Navigation"
+        mc:Ignorable="d"
+        Title="HNovaReader"
+        Icon="pack://application:,,,/Assets/HNovaReader.ico"
+        Width="1440"
+        Height="900"
+        MinWidth="1080"
+        MinHeight="680"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        AllowDrop="True"
+        PreviewDragOver="OnPreviewDragOver"
+        Drop="OnDrop"
+        Closing="OnClosing"
+        Loaded="OnLoaded"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type library:LibraryViewModel}">
+            <library:LibraryView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type settings:SettingsViewModel}">
+            <settings:SettingsView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type reader:ReaderViewModel}">
+            <reader:ReaderView />
+        </DataTemplate>
+        <HierarchicalDataTemplate DataType="{x:Type library:LibraryTreeNodeViewModel}"
+                                  ItemsSource="{Binding Children}">
+            <Grid MinHeight="30" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           Text="{Binding Name}"
+                           TextTrimming="CharacterEllipsis" />
+                <Border Grid.Column="1"
+                        MinWidth="24"
+                        Margin="8,0,2,0"
+                        Padding="5,1"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource SurfaceRaisedBrush}"
+                        CornerRadius="8">
+                    <TextBlock HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               FontSize="10"
+                               Text="{Binding Count}" />
+                </Border>
+            </Grid>
+        </HierarchicalDataTemplate>
+        <Style x:Key="LibraryTreeItemStyle" TargetType="TreeViewItem">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition>
+                <ColumnDefinition.Style>
+                    <Style TargetType="ColumnDefinition">
+                        <Setter Property="Width" Value="244" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReaderPage}" Value="True">
+                                <Setter Property="Width" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ColumnDefinition.Style>
+            </ColumnDefinition>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0"
+                Background="{DynamicResource SidebarBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="0,0,1,0">
+            <Grid Margin="18,20,18,18">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Margin="8,0,8,26">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="44" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Image Width="34"
+                           Height="34"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           Source="pack://application:,,,/Assets/HNovaReader.png" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock FontSize="15"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   Text="HNOVA" />
+                        <TextBlock Margin="0,2,0,0"
+                                   FontSize="10"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   Text="LOCAL READER" />
+                    </StackPanel>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Margin="14,0,0,6"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   Text="LIBRARY" />
+                        <Button Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static navigation:NavigationRoute.Library}"
+                                Content="全部书籍"
+                                Style="{StaticResource HNova.NavigationButton}" />
+                        <Button Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static navigation:NavigationRoute.Recent}"
+                                Content="最近阅读"
+                                Style="{StaticResource HNova.NavigationButton}" />
+                        <Button Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static navigation:NavigationRoute.Reading}"
+                                Content="阅读中"
+                                Style="{StaticResource HNova.NavigationButton}" />
+                        <Button Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static navigation:NavigationRoute.Unread}"
+                                Content="未读"
+                                Style="{StaticResource HNova.NavigationButton}" />
+                        <Button Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static navigation:NavigationRoute.Finished}"
+                                Content="已读"
+                                Style="{StaticResource HNova.NavigationButton}" />
+                        <Button Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static navigation:NavigationRoute.Favorites}"
+                                Content="收藏"
+                                Style="{StaticResource HNova.NavigationButton}" />
+
+                        <Border Height="1"
+                                Margin="12,15"
+                                Background="{DynamicResource BorderSubtleBrush}" />
+
+                        <Button Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static navigation:NavigationRoute.Tags}"
+                                Content="标签"
+                                Style="{StaticResource HNova.NavigationButton}" />
+
+                        <Border Height="1"
+                                Margin="12,15"
+                                Background="{DynamicResource BorderSubtleBrush}" />
+
+                        <Grid Margin="12,0,4,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock VerticalAlignment="Center"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Text="书库目录" />
+                            <Button Grid.Column="1"
+                                    Width="27"
+                                    Height="27"
+                                    Margin="4,0,0,0"
+                                    Command="{Binding Library.CreateFolderCommand}"
+                                    Content="＋"
+                                    Style="{StaticResource HNova.IconButton}"
+                                    ToolTip="新建文件夹" />
+                            <Button Grid.Column="2"
+                                    Width="27"
+                                    Height="27"
+                                    Margin="4,0,0,0"
+                                    Command="{Binding Library.CreateSeriesCommand}"
+                                    Content="▤"
+                                    Style="{StaticResource HNova.IconButton}"
+                                    ToolTip="在所选文件夹中新建系列" />
+                        </Grid>
+
+                        <TreeView x:Name="LibraryTree"
+                                  Margin="4,0,0,6"
+                                  Padding="0"
+                                  AllowDrop="True"
+                                  Background="Transparent"
+                                  BorderThickness="0"
+                                  ItemContainerStyle="{StaticResource LibraryTreeItemStyle}"
+                                  ItemsSource="{Binding Library.LibraryTree}"
+                                  SelectedItemChanged="OnLibraryTreeSelectedItemChanged"
+                                  PreviewMouseLeftButtonDown="OnLibraryTreeLeftButtonDown"
+                                  PreviewMouseMove="OnLibraryTreeMouseMove"
+                                  PreviewMouseRightButtonDown="OnLibraryTreeRightButtonDown"
+                                  PreviewDragOver="OnLibraryTreeDragOver"
+                                  Drop="OnLibraryTreeDrop">
+                            <TreeView.ContextMenu>
+                                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                    <MenuItem Command="{Binding Library.CreateFolderCommand}" Header="新建文件夹" />
+                                    <MenuItem Command="{Binding Library.CreateSeriesCommand}" Header="新建系列" />
+                                    <Separator />
+                                    <MenuItem Command="{Binding Library.RenameLibraryNodeCommand}"
+                                              Header="重命名"
+                                              IsEnabled="{Binding Library.SelectedLibraryNode.CanRename}" />
+                                    <Separator />
+                                    <MenuItem Command="{Binding Library.DeleteLibraryNodeCommand}"
+                                              Foreground="{DynamicResource DangerBrush}"
+                                              Header="{Binding Library.SelectedLibraryNode.DeleteActionText}"
+                                              IsEnabled="{Binding Library.SelectedLibraryNode.CanDelete}" />
+                                </ContextMenu>
+                            </TreeView.ContextMenu>
+                        </TreeView>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Button Grid.Row="2"
+                        Command="{Binding NavigateCommand}"
+                        CommandParameter="{x:Static navigation:NavigationRoute.Settings}"
+                        Content="设置"
+                        Style="{StaticResource HNova.NavigationButton}" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition>
+                    <RowDefinition.Style>
+                        <Style TargetType="RowDefinition">
+                            <Setter Property="Height" Value="58" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsReaderPage}" Value="True">
+                                    <Setter Property="Height" Value="0" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </RowDefinition.Style>
+                </RowDefinition>
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="0,0,0,1">
+                <Grid Margin="28,0">
+                    <Button Width="36"
+                            Height="36"
+                            HorizontalAlignment="Left"
+                            Command="{Binding GoBackCommand}"
+                            Content="←"
+                            IsEnabled="{Binding CanGoBack}"
+                            Style="{StaticResource HNova.IconButton}"
+                            ToolTip="返回" />
+                    <TextBlock HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               Text="OFFLINE · TXT" />
+                    <StackPanel HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal">
+                        <TextBlock MaxWidth="380"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding ImportStatus}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Button Width="60"
+                                Height="30"
+                                Margin="10,0,0,0"
+                                Command="{Binding CancelImportCommand}"
+                                Content="取消">
+                            <Button.Style>
+                                <Style BasedOn="{StaticResource HNova.IconButton}"
+                                       TargetType="Button">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
+        </Grid>
+    </Grid>
+</Window>
