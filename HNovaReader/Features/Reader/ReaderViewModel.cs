@@ -118,10 +118,10 @@ public sealed partial class ReaderViewModel
     private bool isIndexing;
 
     [ObservableProperty]
-    private bool isCatalogVisible = true;
+    private bool isCatalogVisible;
 
     [ObservableProperty]
-    private bool isAnnotationsVisible = true;
+    private bool isAnnotationsVisible;
 
     [ObservableProperty]
     private bool isFocusMode;
@@ -223,6 +223,9 @@ public sealed partial class ReaderViewModel
         if (!explicitCharacterOffset.HasValue)
         {
             ResetEditState();
+            IsCatalogVisible = false;
+            IsAnnotationsVisible = false;
+            IsFocusMode = false;
         }
 
         await CloseSessionAsync(savePosition: true, CancellationToken.None);
@@ -409,6 +412,11 @@ public sealed partial class ReaderViewModel
     [RelayCommand]
     private void BeginEdit()
     {
+        if (IsEditMode || IsSavingEdit)
+        {
+            return;
+        }
+
         if (CurrentWindow is not { } window || session is null || currentBook is null)
         {
             WarningMessage = "请先打开一本 TXT 书籍再编辑。";
@@ -418,7 +426,7 @@ public sealed partial class ReaderViewModel
         editStartCharacterOffset = window.StartCharacterOffset;
         editOriginalLength = window.Text.Length;
         EditText = window.Text;
-        EditStatusMessage = "正在编辑当前加载片段；保存将直接更新原 TXT 文件。";
+        EditStatusMessage = "保存将更新 TXT；切换只读会放弃未保存的修改。";
         ErrorMessage = null;
         IsEditMode = true;
     }
@@ -567,9 +575,22 @@ public sealed partial class ReaderViewModel
     private void ToggleFocusMode()
     {
         IsFocusMode = !IsFocusMode;
-        IsCatalogVisible = !IsFocusMode;
-        IsAnnotationsVisible = !IsFocusMode;
+        if (IsFocusMode)
+        {
+            catalogBeforeFocus = IsCatalogVisible;
+            annotationsBeforeFocus = IsAnnotationsVisible;
+            IsCatalogVisible = false;
+            IsAnnotationsVisible = false;
+        }
+        else
+        {
+            IsCatalogVisible = catalogBeforeFocus;
+            IsAnnotationsVisible = annotationsBeforeFocus;
+        }
     }
+
+    private bool catalogBeforeFocus;
+    private bool annotationsBeforeFocus;
 
     [RelayCommand]
     private void IncreaseFontSize()

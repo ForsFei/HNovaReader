@@ -80,11 +80,17 @@ public partial class ReaderView : UserControl
         if (viewModel is not null)
         {
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            ApplyReaderChrome();
         }
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ReaderViewModel.ReaderTheme))
+        {
+            ApplyReaderChrome();
+        }
+
         if (e.PropertyName is nameof(ReaderViewModel.CurrentWindow)
             or nameof(ReaderViewModel.RestoreCharacterOffset)
             or nameof(ReaderViewModel.ReaderFontSize)
@@ -238,6 +244,8 @@ public partial class ReaderView : UserControl
 
     private FlowDocument CreateDocument(TextReadWindow? window, Thickness pagePadding)
     {
+        // RichTextBox propagates its Padding to the hosted document.
+        ReaderBox.Padding = pagePadding;
         var fontSize = viewModel?.ReaderFontSize ?? 18;
         var fontFamily = viewModel?.ReaderFontFamily ?? "Microsoft YaHei UI";
         var document = new FlowDocument
@@ -478,14 +486,6 @@ public partial class ReaderView : UserControl
         activeSelection = null;
     }
 
-    private void OnReaderThemeMenuClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { ContextMenu: { } menu } button)
-        {
-            menu.PlacementTarget = button;
-            menu.IsOpen = true;
-        }
-    }
 
     private ReaderTextSelection? CaptureSelection(TextPointer? start, TextPointer? end)
     {
@@ -516,6 +516,14 @@ public partial class ReaderView : UserControl
 
     private void RestoreScrollAnchor(long characterOffset)
     {
+        if (viewModel?.CurrentWindow is { IsStartOfDocument: true } window
+            && characterOffset <= window.StartCharacterOffset)
+        {
+            ReaderBox.ScrollToHome();
+            viewModel.UpdateVisibleAnchor(characterOffset);
+            return;
+        }
+
         var segment = FindSegment(characterOffset);
         if (segment is null)
         {
@@ -535,7 +543,7 @@ public partial class ReaderView : UserControl
                 if (!rectangle.IsEmpty)
                 {
                     ReaderBox.ScrollToVerticalOffset(
-                        Math.Max(0, ReaderBox.VerticalOffset + rectangle.Top - 18));
+                        Math.Max(0, ReaderBox.VerticalOffset + rectangle.Top - ReaderBox.Padding.Top));
                 }
 
                 viewModel?.UpdateVisibleAnchor(characterOffset);
@@ -942,6 +950,44 @@ public partial class ReaderView : UserControl
             (ReaderTheme.Sepia, true) => "ReaderSepiaForegroundBrush",
             _ => "ReaderSepiaBackgroundBrush",
         };
+    }
+
+    private void ApplyReaderChrome()
+    {
+        var theme = viewModel?.ReaderTheme ?? ReaderTheme.Sepia;
+        var palette = new ResourceDictionary
+        {
+            Source = new Uri(
+                theme == ReaderTheme.Dark
+                    ? "/HNovaReader;component/Resources/Themes/DarkTheme.xaml"
+                    : "/HNovaReader;component/Resources/Themes/LightTheme.xaml",
+                UriKind.Relative),
+        };
+        palette["AppBackgroundBrush"] = palette[GetReaderBrushKey(isForeground: false)];
+        palette["TextPrimaryBrush"] = palette[GetReaderBrushKey(isForeground: true)];
+        if (theme == ReaderTheme.Sepia)
+        {
+            palette["SidebarBackgroundBrush"] = new SolidColorBrush(Color.FromRgb(0xEA, 0xDF, 0xCA));
+            palette["SurfaceBrush"] = new SolidColorBrush(Color.FromRgb(0xF8, 0xF1, 0xE4));
+            palette["SurfaceRaisedBrush"] = new SolidColorBrush(Color.FromRgb(0xF8, 0xF1, 0xE4));
+            palette["SurfaceHoverBrush"] = new SolidColorBrush(Color.FromRgb(0xE5, 0xD8, 0xBF));
+            palette["BorderBrush"] = new SolidColorBrush(Color.FromRgb(0xD4, 0xC6, 0xAC));
+            palette["BorderSubtleBrush"] = new SolidColorBrush(Color.FromRgb(0xE1, 0xD5, 0xBF));
+            palette["TextSecondaryBrush"] = new SolidColorBrush(Color.FromRgb(0x6B, 0x5D, 0x48));
+            palette["TextMutedBrush"] = new SolidColorBrush(Color.FromRgb(0x83, 0x73, 0x5B));
+        }
+
+        Resources.MergedDictionaries.Clear();
+        Resources.MergedDictionaries.Add(palette);
+    }
+
+    private void OnReaderSurfaceSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (viewModel?.ReadingLayoutMode == ReaderLayoutMode.Scroll && e.WidthChanged)
+        {
+            viewModel.RestoreCharacterOffset = viewModel.CurrentCharacterOffset;
+            ScheduleRender();
+        }
     }
 
     private sealed record RenderedTextSegment(

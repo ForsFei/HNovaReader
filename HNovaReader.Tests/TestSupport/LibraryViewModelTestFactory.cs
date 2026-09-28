@@ -304,6 +304,24 @@ public sealed class StubLibraryOrganizationService : ILibraryOrganizationService
 
     public Task EnsureDefaultsAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    public Task PruneMissingFoldersAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<LibraryFolderDetails> CreateFolderAsync(Guid parentId, string name, CancellationToken cancellationToken) =>
+        CreateFolderAsync(name, cancellationToken);
+
+    public Task<LibraryFolderDetails> EnsureFolderPathAsync(string relativePath, CancellationToken cancellationToken) =>
+        Task.FromResult(Folders.First());
+
+    public (Guid FolderId, Guid ParentId)? LastFolderMove { get; private set; }
+
+    public Task MoveFolderAsync(Guid folderId, Guid targetParentId, CancellationToken cancellationToken)
+    {
+        LastFolderMove = (folderId, targetParentId);
+        var index = Folders.FindIndex(folder => folder.Id == folderId);
+        Folders[index] = Folders[index] with { ParentId = targetParentId };
+        return Task.CompletedTask;
+    }
+
     public Task<IReadOnlyList<LibraryFolderDetails>> GetFoldersAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<LibraryFolderDetails>>(Folders.ToArray());
 
@@ -458,8 +476,8 @@ public sealed class StubLibraryOrganizationService : ILibraryOrganizationService
                 {
                     FolderId = request.FolderId,
                     FolderName = folder.Name,
-                    SeriesId = series?.Id,
-                    SeriesName = series?.Name,
+                    SeriesId = book.SeriesId,
+                    SeriesName = book.SeriesName,
                 };
             }
         }

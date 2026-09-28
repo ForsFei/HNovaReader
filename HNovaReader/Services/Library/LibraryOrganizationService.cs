@@ -15,600 +15,518 @@ public sealed class LibraryOrganizationService(
     ILibraryBackupService backupService) : ILibraryOrganizationService
 {
     private const int CopyBufferSize = 128 * 1024;
+    private readonly SemaphoreSlim initializationGate = new(1, 1);
 
     public async Task EnsureDefaultsAsync(CancellationToken cancellationToken)
     {
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var inbox = await dbContext.LibraryFolders.SingleOrDefaultAsync(
-            folder => folder.Id == LibraryOrganizationDefaults.InboxFolderId,
-            cancellationToken);
-        if (inbox is null)
+        await initializationGate.WaitAsync(cancellationToken);
+        try
         {
-            inbox = new LibraryFolder
+            await using var db = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var folders = await db.LibraryFolders.ToListAsync(cancellationToken);
+            var root = folders.FirstOrDefault(folder => folder.Id == LibraryOrganizationDefaults.RootFolderId);
+            var upgrade = root is null;
+            if (root is null)
             {
-                Id = LibraryOrganizationDefaults.InboxFolderId,
-                Name = LibraryOrganizationDefaults.InboxFolderName,
-                NormalizedName = LibraryNameRules.Normalize(LibraryOrganizationDefaults.InboxFolderName),
-                UnsortedName = LibraryOrganizationDefaults.UnsortedName,
-                SortOrder = int.MinValue,
-                IsSystem = true,
-            };
-            dbContext.LibraryFolders.Add(inbox);
-        }
+                root = new LibraryFolder
+                {
+                    Id = LibraryOrganizationDefaults.RootFolderId,
+                    Name = "书库根目录",
+                    NormalizedName = "书库根目录",
+                    IsSystem = true,
+                    SortOrder = int.MinValue,
+                };
+                db.LibraryFolders.Add(root);
+                folders.Add(root);
+                foreach (var folder in folders.Where(folder => folder.Id != root.Id && folder.ParentId is null))
+                {
+                    folder.ParentId = root.Id;
+                }
+            }
 
-        var orphanSeries = await dbContext.Series
-            .Where(series => series.FolderId == null)
-            .ToListAsync(cancellationToken);
-        foreach (var series in orphanSeries)
+            var inbox = folders.FirstOrDefault(folder => folder.Id == LibraryOrganizationDefaults.InboxFolderId);
+            if (inbox is null)
+            {
+                inbox = new LibraryFolder
+                {
+                    Id = LibraryOrganizationDefaults.InboxFolderId,
+                    Name = LibraryOrganizationDefaults.InboxFolderName,
+                    NormalizedName = LibraryNameRules.Normalize(LibraryOrganizationDefaults.InboxFolderName),
+                    RelativePath = LibraryOrganizationDefaults.InboxFolderName,
+                    NormalizedRelativePath = LibraryNameRules.Normalize(LibraryOrganizationDefaults.InboxFolderName),
+                    ParentId = root.Id,
+                    IsSystem = true,
+                    SortOrder = int.MinValue + 1,
+                };
+                db.LibraryFolders.Add(inbox);
+                folders.Add(inbox);
+            }
+
+            // Upgrade from real paths, not SeriesId. Existing book IDs/annotations and disk files are untouched.
+            if (upgrade)
+            {
+                foreach (var directory in EnumerateVisibleDirectories(GetLibraryRoot()))
+                {
+                    EnsurePath(db, folders, Path.GetRelativePath(GetLibraryRoot(), directory));
+                }
+                var books = await db.Books.ToListAsync(cancellationToken);
+                foreach (var book in books)
+                {
+                    if (book.StorageMode == BookStorageMode.ManagedCopy && IsWithin(GetLibraryRoot(), book.FilePath))
+                    {
+                        var relative = Path.GetRelativePath(GetLibraryRoot(), Path.GetDirectoryName(book.FilePath)!);
+                        var folder = EnsurePath(db, folders, relative == "." ? "" : relative);
+                        book.FolderId = folder.Id;
+                    }
+                    else if (book.FolderId is null)
+                    {
+                        book.FolderId = inbox.Id;
+                    }
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            Directory.CreateDirectory(FolderPath(inbox));
+        }
+        finally
         {
-            series.FolderId = inbox.Id;
+            initializationGate.Release();
         }
-
-        var orphanBooks = await dbContext.Books
-            .Where(book => book.FolderId == null)
-            .ToListAsync(cancellationToken);
-        var seriesFolders = await dbContext.Series
-            .Where(series => series.FolderId != null)
-            .ToDictionaryAsync(series => series.Id, series => series.FolderId, cancellationToken);
-        foreach (var book in orphanBooks)
-        {
-            book.FolderId = book.SeriesId is { } seriesId
-                && seriesFolders.TryGetValue(seriesId, out var folderId)
-                ? folderId
-                : inbox.Id;
-        }
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-        EnsureOrganizationDirectory(GetLibraryRoot(), inbox.Name, inbox.UnsortedName);
     }
 
-    public async Task<IReadOnlyList<LibraryFolderDetails>> GetFoldersAsync(
-        CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<LibraryFolderDetails>> GetFoldersAsync(CancellationToken cancellationToken)
     {
         await EnsureDefaultsAsync(cancellationToken);
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var folders = await dbContext.LibraryFolders
-            .AsNoTracking()
-            .Include(folder => folder.Series)
-            .Include(folder => folder.Books)
-            .OrderBy(folder => folder.SortOrder)
-            .ThenBy(folder => folder.Name)
-            .ToListAsync(cancellationToken);
-
-        return folders.Select(folder => new LibraryFolderDetails(
-            folder.Id,
-            folder.Name,
-            folder.SortOrder,
-            folder.IsSystem,
-            folder.UnsortedName,
-            folder.Books.Count(book => book.SeriesId == null),
-            folder.Books.Count,
-            folder.Series
-                .OrderBy(series => series.Name, StringComparer.CurrentCultureIgnoreCase)
-                .Select(series => new LibrarySeriesDetails(
-                    series.Id,
-                    folder.Id,
-                    series.Name,
-                    folder.Books.Count(book => book.SeriesId == series.Id)))
-                .ToArray()))
-            .ToArray();
+        await using var db = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var folders = await db.LibraryFolders.AsNoTracking().OrderBy(folder => folder.SortOrder)
+            .ThenBy(folder => folder.Name).ToListAsync(cancellationToken);
+        var counts = await db.Books.GroupBy(book => book.FolderId)
+            .Select(group => new { Id = group.Key, Count = group.Count() }).ToListAsync(cancellationToken);
+        return folders.Select(folder => Details(folder,
+            counts.FirstOrDefault(count => count.Id == folder.Id)?.Count ?? 0)).ToArray();
     }
 
-    public async Task<LibraryFolderDetails> CreateFolderAsync(
-        string name,
-        CancellationToken cancellationToken)
-    {
-        var cleanedName = LibraryNameRules.Clean(name, nameof(name));
-        var normalizedName = LibraryNameRules.Normalize(cleanedName);
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
-        if (await dbContext.LibraryFolders.AnyAsync(
-                folder => folder.NormalizedName == normalizedName,
-                cancellationToken))
-        {
-            throw new InvalidOperationException($"书架文件夹“{cleanedName}”已经存在。");
-        }
+    public Task<LibraryFolderDetails> CreateFolderAsync(string name, CancellationToken cancellationToken) =>
+        CreateFolderAsync(LibraryOrganizationDefaults.RootFolderId, name, cancellationToken);
 
-        var nextSortOrder = (await dbContext.LibraryFolders.MaxAsync(
-            folder => (int?)folder.SortOrder,
-            cancellationToken) ?? 0) + 1;
-        var folder = new LibraryFolder
+    public async Task<LibraryFolderDetails> CreateFolderAsync(Guid parentId, string name, CancellationToken cancellationToken)
+    {
+        var clean = LibraryNameRules.Clean(name, nameof(name));
+        await using var db = await CreateOrganizationContextAsync(cancellationToken);
+        var parent = await db.LibraryFolders.SingleAsync(folder => folder.Id == parentId, cancellationToken);
+        var relative = Path.Combine(parent.RelativePath, clean);
+        var normalized = LibraryNameRules.Normalize(relative);
+        if (await db.LibraryFolders.AnyAsync(folder => folder.NormalizedRelativePath == normalized, cancellationToken)
+            || Directory.Exists(Path.Combine(GetLibraryRoot(), relative)))
         {
-            Id = Guid.NewGuid(),
-            Name = cleanedName,
-            NormalizedName = normalizedName,
-            UnsortedName = LibraryOrganizationDefaults.UnsortedName,
-            SortOrder = nextSortOrder,
-        };
-        var directory = EnsureOrganizationDirectory(GetLibraryRoot(), cleanedName, folder.UnsortedName);
-        dbContext.LibraryFolders.Add(folder);
+            throw new InvalidOperationException("该目录下已经存在同名文件夹，请使用更新书库识别已有目录。");
+        }
+        var folder = NewFolder(parent.Id, clean, relative);
+        var path = FolderPath(folder);
+        Directory.CreateDirectory(path);
+        db.LibraryFolders.Add(folder);
         try
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
         }
         catch
         {
-            TryDeleteEmptyDirectory(Path.GetDirectoryName(directory));
+            TryDeleteEmptyDirectory(path);
             throw;
         }
-
-        return new LibraryFolderDetails(
-            folder.Id,
-            folder.Name,
-            folder.SortOrder,
-            false,
-            folder.UnsortedName,
-            0,
-            0,
-            []);
+        return Details(folder, 0);
     }
 
-    public async Task<LibrarySeriesDetails> CreateSeriesAsync(
-        Guid folderId,
-        string name,
-        CancellationToken cancellationToken)
+    public async Task<LibraryFolderDetails> EnsureFolderPathAsync(string relativePath, CancellationToken cancellationToken)
     {
-        var cleanedName = LibraryNameRules.Clean(name, nameof(name));
-        var normalizedName = LibraryNameRules.Normalize(cleanedName);
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var folder = await dbContext.LibraryFolders.SingleOrDefaultAsync(
-            candidate => candidate.Id == folderId,
-            cancellationToken) ?? throw new InvalidOperationException("目标书架文件夹不存在。");
-        if (LibraryNameRules.Normalize(folder.UnsortedName) == normalizedName)
-        {
-            throw new InvalidOperationException($"“{cleanedName}”是该书架的未分系列名称。");
-        }
+        await using var db = await CreateOrganizationContextAsync(cancellationToken);
+        var folders = await db.LibraryFolders.ToListAsync(cancellationToken);
+        var folder = EnsurePath(db, folders, relativePath == "." ? "" : relativePath);
+        await db.SaveChangesAsync(cancellationToken);
+        return Details(folder, 0);
+    }
 
-        if (await dbContext.Series.AnyAsync(
-                series => series.FolderId == folderId && series.NormalizedName == normalizedName,
-                cancellationToken))
+    private static LibraryFolder EnsurePath(HNovaReaderDbContext db, List<LibraryFolder> folders, string relative)
+    {
+        if (Path.IsPathRooted(relative))
         {
-            throw new InvalidOperationException($"该书架下已经存在系列“{cleanedName}”。");
+            throw new ArgumentException("目录必须位于书库根目录中。");
         }
-
-        var series = new Series
+        var current = folders.Single(folder => folder.Id == LibraryOrganizationDefaults.RootFolderId);
+        foreach (var segment in relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
         {
-            Id = Guid.NewGuid(),
-            FolderId = folder.Id,
-            Name = cleanedName,
-            NormalizedName = normalizedName,
-        };
-        var directory = EnsureOrganizationDirectory(GetLibraryRoot(), folder.Name, series.Name);
-        dbContext.Series.Add(series);
+            if (segment == ".") continue;
+            var name = LibraryNameRules.Clean(segment, nameof(relative));
+            var path = Path.Combine(current.RelativePath, name);
+            var normalized = LibraryNameRules.Normalize(path);
+            var next = folders.FirstOrDefault(folder => folder.NormalizedRelativePath == normalized);
+            if (next is null)
+            {
+                next = NewFolder(current.Id, name, path);
+                db.LibraryFolders.Add(next);
+                folders.Add(next);
+            }
+            current = next;
+        }
+        return current;
+    }
+
+    private static LibraryFolder NewFolder(Guid parentId, string name, string relative) => new()
+    {
+        Id = Guid.NewGuid(),
+        ParentId = parentId,
+        Name = name,
+        NormalizedName = LibraryNameRules.Normalize(name),
+        RelativePath = relative,
+        NormalizedRelativePath = LibraryNameRules.Normalize(relative),
+    };
+
+    private static LibraryFolderDetails Details(LibraryFolder folder, int count) => new(
+        folder.Id, folder.Name, folder.SortOrder, folder.IsSystem, folder.UnsortedName, 0, count, [],
+        folder.ParentId, folder.RelativePath);
+
+    public async Task RenameFolderAsync(Guid folderId, string name, CancellationToken cancellationToken)
+    {
+        var clean = LibraryNameRules.Clean(name, nameof(name));
+        await ChangeFolderAsync(folderId, null, clean, cancellationToken);
+    }
+
+    public Task MoveFolderAsync(Guid folderId, Guid targetParentId, CancellationToken cancellationToken) =>
+        ChangeFolderAsync(folderId, targetParentId, null, cancellationToken);
+
+    private async Task ChangeFolderAsync(Guid id, Guid? newParentId, string? newName, CancellationToken ct)
+    {
+        await using var db = await CreateOrganizationContextAsync(ct);
+        var folders = await db.LibraryFolders.ToListAsync(ct);
+        var folder = folders.Single(item => item.Id == id);
+        if (id == LibraryOrganizationDefaults.RootFolderId)
+        {
+            throw new InvalidOperationException("书库根目录请在设置中修改。");
+        }
+        var parentId = newParentId ?? folder.ParentId!.Value;
+        var parent = folders.Single(item => item.Id == parentId);
+        if (parent.Id == id || IsRelativeWithin(folder.RelativePath, parent.RelativePath))
+        {
+            throw new InvalidOperationException("不能移动到自身或子目录中。");
+        }
+        var oldRelative = folder.RelativePath;
+        var newRelative = Path.Combine(parent.RelativePath, newName ?? folder.Name);
+        if (oldRelative.Equals(newRelative, StringComparison.Ordinal))
+        {
+            return;
+        }
+        var oldPath = FolderPath(folder);
+        var target = Path.Combine(GetLibraryRoot(), newRelative);
+        if (!oldPath.Equals(target, StringComparison.OrdinalIgnoreCase)
+            && (Directory.Exists(target) || File.Exists(target)))
+        {
+            throw new InvalidOperationException("目标存在同名文件或文件夹，操作已取消。");
+        }
+        var descendants = folders.Where(item => item.Id == id || IsRelativeWithin(oldRelative, item.RelativePath)).ToArray();
+        var normalized = LibraryNameRules.Normalize(newRelative);
+        if (folders.Any(item => !descendants.Contains(item) && item.NormalizedRelativePath == normalized))
+        {
+            throw new InvalidOperationException("目标文件夹已存在。");
+        }
+        var books = await db.Books.Where(book => book.StorageMode == BookStorageMode.ManagedCopy).ToListAsync(ct);
+        var affected = books.Where(book => IsWithin(oldPath, book.FilePath)).ToArray();
+        // Include unregistered/non-TXT files in directory-level backup. Refuse reparse points.
+        var files = Directory.Exists(oldPath) ? EnumerateSafeFiles(oldPath).ToArray() : [];
+        if (affected.Any(book => !File.Exists(book.FilePath)))
+        {
+            throw new FileNotFoundException("部分书籍文件丢失，请先更新书库。");
+        }
+        await backupService.BackupAsync(GetLibraryRoot(), "调整目录-" + folder.Name,
+            files.Select(file => new LibraryBackupItem(affected.FirstOrDefault(book =>
+                book.FilePath.Equals(file, StringComparison.OrdinalIgnoreCase))?.Id, file,
+                Path.Combine(target, Path.GetRelativePath(oldPath, file)))).ToArray(), ct);
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var moved = false;
         try
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            if (Directory.Exists(oldPath))
+            {
+                MoveDirectory(oldPath, target);
+                moved = true;
+            }
+            else
+            {
+                Directory.CreateDirectory(target);
+            }
+            foreach (var item in descendants)
+            {
+                var suffix = item.Id == id ? "" : Path.GetRelativePath(oldRelative, item.RelativePath);
+                item.RelativePath = Path.Combine(newRelative, suffix);
+                item.NormalizedRelativePath = LibraryNameRules.Normalize(item.RelativePath);
+            }
+            folder.Name = newName ?? folder.Name;
+            folder.NormalizedName = LibraryNameRules.Normalize(folder.Name);
+            folder.ParentId = parentId;
+            foreach (var book in affected)
+            {
+                RebaseBook(book, oldPath, target);
+            }
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
         }
         catch
         {
-            TryDeleteEmptyDirectory(directory);
+            await transaction.RollbackAsync(CancellationToken.None);
+            if (moved && Directory.Exists(target) && !Directory.Exists(oldPath))
+            {
+                MoveDirectory(target, oldPath);
+            }
+            else if (!moved)
+            {
+                TryDeleteEmptyDirectory(target);
+            }
             throw;
         }
-
-        return new LibrarySeriesDetails(series.Id, folder.Id, series.Name, 0);
-    }
-
-    public async Task RenameFolderAsync(
-        Guid folderId,
-        string name,
-        CancellationToken cancellationToken)
-    {
-        var cleanedName = LibraryNameRules.Clean(name, nameof(name));
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var folder = await dbContext.LibraryFolders
-            .Include(candidate => candidate.Series)
-            .Include(candidate => candidate.Books)
-            .SingleOrDefaultAsync(candidate => candidate.Id == folderId, cancellationToken)
-            ?? throw new InvalidOperationException("书架文件夹不存在。");
-        var normalizedName = LibraryNameRules.Normalize(cleanedName);
-        if (await dbContext.LibraryFolders.AnyAsync(
-                candidate => candidate.Id != folderId && candidate.NormalizedName == normalizedName,
-                cancellationToken))
-        {
-            throw new InvalidOperationException($"书架文件夹“{cleanedName}”已经存在。");
-        }
-
-        var oldName = folder.Name;
-        if (string.Equals(oldName, cleanedName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var root = GetLibraryRoot();
-        var oldDirectory = Path.Combine(root, oldName);
-        var seriesNames = folder.Series.ToDictionary(series => series.Id, series => series.Name);
-        EnsureOrganizationDirectory(root, cleanedName, folder.UnsortedName);
-        foreach (var seriesName in seriesNames.Values)
-        {
-            EnsureOrganizationDirectory(root, cleanedName, seriesName);
-        }
-
-        folder.Name = cleanedName;
-        folder.NormalizedName = normalizedName;
-        await MoveAndSaveAsync(
-            dbContext,
-            folder.Books.Where(IsManagedExisting).ToArray(),
-            book => BuildDestinationPath(
-                root,
-                cleanedName,
-                book.SeriesId is { } seriesId && seriesNames.TryGetValue(seriesId, out var seriesName)
-                    ? seriesName
-                    : folder.UnsortedName,
-                Path.GetFileName(book.FilePath)),
-            $"重命名书架-{oldName}",
-            cancellationToken);
-        TryDeleteEmptyDirectoryTree(oldDirectory);
-    }
-
-    public async Task RenameSeriesAsync(
-        Guid seriesId,
-        string name,
-        CancellationToken cancellationToken)
-    {
-        var cleanedName = LibraryNameRules.Clean(name, nameof(name));
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var series = await dbContext.Series
-            .Include(candidate => candidate.Folder)
-            .Include(candidate => candidate.Books)
-            .SingleOrDefaultAsync(candidate => candidate.Id == seriesId, cancellationToken)
-            ?? throw new InvalidOperationException("系列不存在。");
-        var normalizedName = LibraryNameRules.Normalize(cleanedName);
-        if (series.Folder is not null
-            && LibraryNameRules.Normalize(series.Folder.UnsortedName) == normalizedName)
-        {
-            throw new InvalidOperationException($"“{cleanedName}”是该书架的未分系列名称。");
-        }
-
-        if (await dbContext.Series.AnyAsync(
-                candidate => candidate.Id != seriesId
-                    && candidate.FolderId == series.FolderId
-                    && candidate.NormalizedName == normalizedName,
-                cancellationToken))
-        {
-            throw new InvalidOperationException($"该书架下已经存在系列“{cleanedName}”。");
-        }
-
-        var oldName = series.Name;
-        if (string.Equals(oldName, cleanedName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var root = GetLibraryRoot();
-        var folderName = series.Folder?.Name ?? LibraryOrganizationDefaults.InboxFolderName;
-        var oldDirectory = Path.Combine(root, folderName, oldName);
-        EnsureOrganizationDirectory(root, folderName, cleanedName);
-        series.Name = cleanedName;
-        series.NormalizedName = normalizedName;
-        await MoveAndSaveAsync(
-            dbContext,
-            series.Books.Where(IsManagedExisting).ToArray(),
-            book => BuildDestinationPath(
-                root,
-                folderName,
-                cleanedName,
-                Path.GetFileName(book.FilePath)),
-            $"重命名系列-{oldName}",
-            cancellationToken);
-        TryDeleteEmptyDirectoryTree(oldDirectory);
-    }
-
-    public async Task RenameUnsortedAsync(
-        Guid folderId,
-        string name,
-        CancellationToken cancellationToken)
-    {
-        var cleanedName = LibraryNameRules.Clean(name, nameof(name));
-        var normalizedName = LibraryNameRules.Normalize(cleanedName);
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var folder = await dbContext.LibraryFolders
-            .Include(candidate => candidate.Books)
-            .SingleOrDefaultAsync(candidate => candidate.Id == folderId, cancellationToken)
-            ?? throw new InvalidOperationException("书架文件夹不存在。");
-        if (await dbContext.Series.AnyAsync(
-                series => series.FolderId == folderId && series.NormalizedName == normalizedName,
-                cancellationToken))
-        {
-            throw new InvalidOperationException($"该书架下已经存在系列“{cleanedName}”。");
-        }
-
-        var oldName = folder.UnsortedName;
-        if (string.Equals(oldName, cleanedName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var root = GetLibraryRoot();
-        var oldDirectory = Path.Combine(root, folder.Name, oldName);
-        EnsureOrganizationDirectory(root, folder.Name, cleanedName);
-        folder.UnsortedName = cleanedName;
-        var books = folder.Books
-            .Where(book => book.SeriesId == null && IsManagedExisting(book))
-            .ToArray();
-        await MoveAndSaveAsync(
-            dbContext,
-            books,
-            book => BuildDestinationPath(
-                root,
-                folder.Name,
-                cleanedName,
-                Path.GetFileName(book.FilePath)),
-            $"重命名未分系列-{oldName}",
-            cancellationToken);
-        TryDeleteEmptyDirectoryTree(oldDirectory);
-    }
-
-    public async Task DeleteSeriesAsync(Guid seriesId, CancellationToken cancellationToken)
-    {
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var series = await dbContext.Series
-            .Include(candidate => candidate.Folder)
-            .Include(candidate => candidate.Books)
-            .SingleOrDefaultAsync(candidate => candidate.Id == seriesId, cancellationToken)
-            ?? throw new InvalidOperationException("系列不存在。");
-        var folder = series.Folder
-            ?? throw new InvalidOperationException("系列所属的书架文件夹不存在。");
-        var root = GetLibraryRoot();
-        var oldDirectory = Path.Combine(root, folder.Name, series.Name);
-        EnsureOrganizationDirectory(root, folder.Name, folder.UnsortedName);
-        foreach (var book in series.Books)
-        {
-            book.SeriesId = null;
-            book.SeriesIndex = null;
-        }
-
-        dbContext.Series.Remove(series);
-        await MoveAndSaveAsync(
-            dbContext,
-            series.Books.Where(IsManagedExisting).ToArray(),
-            book => BuildDestinationPath(
-                root,
-                folder.Name,
-                folder.UnsortedName,
-                Path.GetFileName(book.FilePath)),
-            $"删除系列-{series.Name}",
-            cancellationToken);
-        TryDeleteEmptyDirectoryTree(oldDirectory);
     }
 
     public async Task DeleteFolderAsync(Guid folderId, CancellationToken cancellationToken)
     {
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var folder = await dbContext.LibraryFolders
-            .Include(candidate => candidate.Series)
-            .Include(candidate => candidate.Books)
-            .SingleOrDefaultAsync(candidate => candidate.Id == folderId, cancellationToken)
-            ?? throw new InvalidOperationException("书架文件夹不存在。");
+        await using var db = await CreateOrganizationContextAsync(cancellationToken);
+        var folders = await db.LibraryFolders.ToListAsync(cancellationToken);
+        var folder = folders.Single(item => item.Id == folderId);
         if (folder.IsSystem)
         {
-            throw new InvalidOperationException("系统收件箱不能删除。");
+            throw new InvalidOperationException("根目录和默认收件箱不能删除。");
         }
-
-        var inbox = await dbContext.LibraryFolders.SingleAsync(
-            candidate => candidate.Id == LibraryOrganizationDefaults.InboxFolderId,
-            cancellationToken);
-        var root = GetLibraryRoot();
-        var oldDirectory = Path.Combine(root, folder.Name);
-        EnsureOrganizationDirectory(root, inbox.Name, inbox.UnsortedName);
-        foreach (var book in folder.Books)
-        {
-            book.FolderId = inbox.Id;
-            book.SeriesId = null;
-            book.SeriesIndex = null;
-        }
-
-        dbContext.LibraryFolders.Remove(folder);
-        await MoveAndSaveAsync(
-            dbContext,
-            folder.Books.Where(IsManagedExisting).ToArray(),
-            book => BuildDestinationPath(
-                root,
-                inbox.Name,
-                inbox.UnsortedName,
-                Path.GetFileName(book.FilePath)),
-            $"删除书架-{folder.Name}",
-            cancellationToken);
-        TryDeleteEmptyDirectoryTree(oldDirectory);
-    }
-
-    public async Task<LibrarySeriesDetails> MoveSeriesAsync(
-        Guid seriesId,
-        Guid targetFolderId,
-        CancellationToken cancellationToken)
-    {
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var series = await dbContext.Series
-            .Include(candidate => candidate.Folder)
-            .Include(candidate => candidate.Books)
-            .SingleOrDefaultAsync(candidate => candidate.Id == seriesId, cancellationToken)
-            ?? throw new InvalidOperationException("系列不存在。");
-        var targetFolder = await dbContext.LibraryFolders.SingleOrDefaultAsync(
-            candidate => candidate.Id == targetFolderId,
-            cancellationToken) ?? throw new InvalidOperationException("目标书架文件夹不存在。");
-        if (series.FolderId == targetFolder.Id)
-        {
-            return new LibrarySeriesDetails(series.Id, targetFolder.Id, series.Name, series.Books.Count);
-        }
-
-        if (LibraryNameRules.Normalize(targetFolder.UnsortedName) == series.NormalizedName)
-        {
-            throw new InvalidOperationException($"目标书架的未分系列名称已经是“{series.Name}”。");
-        }
-
-        if (await dbContext.Series.AnyAsync(
-                candidate => candidate.Id != seriesId
-                    && candidate.FolderId == targetFolder.Id
-                    && candidate.NormalizedName == series.NormalizedName,
-                cancellationToken))
-        {
-            throw new InvalidOperationException($"目标书架下已经存在系列“{series.Name}”。");
-        }
-
-        var root = GetLibraryRoot();
-        var sourceFolderName = series.Folder?.Name ?? LibraryOrganizationDefaults.InboxFolderName;
-        var oldDirectory = Path.Combine(root, sourceFolderName, series.Name);
-        EnsureOrganizationDirectory(root, targetFolder.Name, series.Name);
-        series.FolderId = targetFolder.Id;
-        foreach (var book in series.Books)
-        {
-            book.FolderId = targetFolder.Id;
-        }
-
-        await MoveAndSaveAsync(
-            dbContext,
-            series.Books.Where(IsManagedExisting).ToArray(),
-            book => BuildDestinationPath(
-                root,
-                targetFolder.Name,
-                series.Name,
-                Path.GetFileName(book.FilePath)),
-            $"移动系列-{series.Name}",
-            cancellationToken);
-        TryDeleteEmptyDirectoryTree(oldDirectory);
-        return new LibrarySeriesDetails(series.Id, targetFolder.Id, series.Name, series.Books.Count);
-    }
-
-    public async Task<LibraryImportTarget> ResolveImportTargetAsync(
-        Guid? folderId,
-        Guid? seriesId,
-        string? libraryRoot,
-        CancellationToken cancellationToken)
-    {
-        await EnsureDefaultsAsync(cancellationToken);
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var targetFolderId = folderId ?? LibraryOrganizationDefaults.InboxFolderId;
-        var folder = await dbContext.LibraryFolders.AsNoTracking().SingleOrDefaultAsync(
-            candidate => candidate.Id == targetFolderId,
-            cancellationToken) ?? throw new InvalidOperationException("目标书架文件夹不存在。");
-        Series? series = null;
-        if (seriesId is { } requestedSeriesId)
-        {
-            series = await dbContext.Series.AsNoTracking().SingleOrDefaultAsync(
-                candidate => candidate.Id == requestedSeriesId && candidate.FolderId == folder.Id,
-                cancellationToken) ?? throw new InvalidOperationException("目标系列不存在或不属于该书架。");
-        }
-
-        return new LibraryImportTarget(
-            folder.Id,
-            series?.Id,
-            EnsureOrganizationDirectory(
-                string.IsNullOrWhiteSpace(libraryRoot)
-                    ? GetLibraryRoot()
-                    : Path.GetFullPath(libraryRoot.Trim()),
-                folder.Name,
-                series?.Name ?? folder.UnsortedName));
-    }
-
-    public async Task<LibraryMoveResult> MoveBooksAsync(
-        LibraryMoveRequest request,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (request.BookIds.Count == 0)
-        {
-            return new LibraryMoveResult(0, [], null);
-        }
-
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var folder = await dbContext.LibraryFolders.SingleOrDefaultAsync(
-            candidate => candidate.Id == request.FolderId,
-            cancellationToken) ?? throw new InvalidOperationException("目标书架文件夹不存在。");
-        Series? series = null;
-        if (request.SeriesId is { } seriesId)
-        {
-            series = await dbContext.Series.SingleOrDefaultAsync(
-                candidate => candidate.Id == seriesId && candidate.FolderId == folder.Id,
-                cancellationToken) ?? throw new InvalidOperationException("目标系列不存在或不属于该书架。");
-        }
-
-        var ids = request.BookIds.Distinct().ToArray();
-        var books = await dbContext.Books
-            .Where(book => ids.Contains(book.Id))
+        var descendants = folders.Where(item => item.Id == folderId ||
+            IsRelativeWithin(folder.RelativePath, item.RelativePath)).ToArray();
+        var ids = descendants.Select(item => item.Id).ToArray();
+        var books = await db.Books.Where(book => book.FolderId != null && ids.Contains(book.FolderId.Value))
             .ToListAsync(cancellationToken);
-        var failures = books
-            .Where(book => book.StorageMode != BookStorageMode.ManagedCopy || !File.Exists(book.FilePath))
-            .Select(book => new LibraryMoveFailure(
-                book.Id,
-                book.Title,
-                book.StorageMode != BookStorageMode.ManagedCopy
-                    ? "外部文件需要先复制进管理型书库。"
-                    : "源 TXT 文件不存在。"))
-            .ToArray();
-        if (failures.Length > 0 || books.Count != ids.Length)
+        var oldPath = FolderPath(folder);
+        var files = Directory.Exists(oldPath) ? EnumerateSafeFiles(oldPath).ToArray() : [];
+        if (files.Any(file => !books.Any(book => book.StorageMode == BookStorageMode.ManagedCopy
+            && book.FilePath.Equals(file, StringComparison.OrdinalIgnoreCase))))
         {
-            return new LibraryMoveResult(0, failures, null);
+            throw new InvalidOperationException("目录包含尚未入库或非 TXT 文件，为避免丢失，请先更新书库或在资源管理器中处理。");
         }
-
+        if (books.Any(book => book.StorageMode == BookStorageMode.ManagedCopy && !File.Exists(book.FilePath)))
+        {
+            throw new FileNotFoundException("部分书籍文件丢失，请先更新书库。");
+        }
+        var inbox = folders.Single(item => item.Id == LibraryOrganizationDefaults.InboxFolderId);
         foreach (var book in books)
         {
-            book.FolderId = folder.Id;
-            book.SeriesId = series?.Id;
-            book.SeriesIndex = null;
+            book.FolderId = inbox.Id;
         }
-
-        var backup = await MoveAndSaveAsync(
-            dbContext,
-            books,
-            book => BuildDestinationPath(
-                GetLibraryRoot(),
-                folder.Name,
-                series?.Name ?? folder.UnsortedName,
-                Path.GetFileName(book.FilePath)),
-            request.OperationName,
-            cancellationToken);
-        return new LibraryMoveResult(books.Count, [], backup?.DirectoryPath);
+        // Remove child rows before parent rows (self-reference uses Restrict).
+        db.LibraryFolders.RemoveRange(descendants);
+        await MoveAndSaveAsync(db, books.Where(IsManagedExisting).ToArray(),
+            book => Path.Combine(FolderPath(inbox), Path.GetFileName(book.FilePath)),
+            "删除文件夹-" + folder.Name, cancellationToken);
+        TryDeleteEmptyDirectoryTree(oldPath);
     }
 
-    public async Task<LibraryBackupResult?> BackupBooksAsync(
-        IReadOnlyCollection<Guid> bookIds,
-        string operationName,
-        CancellationToken cancellationToken)
+    public async Task PruneMissingFoldersAsync(CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(bookIds);
-        if (bookIds.Count == 0)
+        if (!Directory.Exists(GetLibraryRoot())) return;
+        await using var db = await dbContextFactory.CreateDbContextAsync(ct);
+        var folders = await db.LibraryFolders.ToListAsync(ct);
+        var occupied = (await db.Books.Where(book => book.FolderId != null)
+            .Select(book => book.FolderId!.Value).ToListAsync(ct)).ToHashSet();
+        var removed = new HashSet<Guid>();
+        foreach (var folder in folders.OrderByDescending(folder => folder.RelativePath.Count(c => c == Path.DirectorySeparatorChar)))
         {
-            return null;
+            if (folder.IsSystem || occupied.Contains(folder.Id) ||
+                folders.Any(child => child.ParentId == folder.Id && !removed.Contains(child.Id)))
+                continue;
+            try { _ = File.GetAttributes(FolderPath(folder)); }
+            catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+            {
+                if (!Directory.Exists(GetLibraryRoot())) return;
+                db.LibraryFolders.Remove(folder);
+                removed.Add(folder.Id);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
         }
+        await db.SaveChangesAsync(ct);
+    }
 
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+    // Series are global metadata. These compatibility methods never create or move physical directories.
+    public async Task<LibrarySeriesDetails> CreateSeriesAsync(Guid folderId, string name, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var clean = name.Trim();
+        if (clean.Length > 200) throw new ArgumentException("系列名称不能超过 200 个字符。");
+        await using var db = await dbContextFactory.CreateDbContextAsync(ct);
+        var normalized = LibraryNameRules.Normalize(clean);
+        var series = await db.Series.SingleOrDefaultAsync(item => item.NormalizedName == normalized, ct);
+        if (series is null)
+        {
+            series = new Series { Id = Guid.NewGuid(), Name = clean, NormalizedName = normalized };
+            db.Series.Add(series);
+            await db.SaveChangesAsync(ct);
+        }
+        return new(series.Id, Guid.Empty, series.Name, await db.Books.CountAsync(book => book.SeriesId == series.Id, ct));
+    }
+
+    public async Task RenameSeriesAsync(Guid seriesId, string name, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var clean = name.Trim();
+        if (clean.Length > 200) throw new ArgumentException("系列名称不能超过 200 个字符。");
+        await using var db = await dbContextFactory.CreateDbContextAsync(ct);
+        var series = await db.Series.SingleAsync(item => item.Id == seriesId, ct);
+        var normalized = LibraryNameRules.Normalize(clean);
+        if (await db.Series.AnyAsync(item => item.Id != seriesId && item.NormalizedName == normalized, ct))
+            throw new InvalidOperationException("该系列名称已存在。");
+        series.Name = clean;
+        series.NormalizedName = normalized;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteSeriesAsync(Guid seriesId, CancellationToken ct)
+    {
+        await using var db = await dbContextFactory.CreateDbContextAsync(ct);
+        var series = await db.Series.Include(item => item.Books).SingleAsync(item => item.Id == seriesId, ct);
+        foreach (var book in series.Books) { book.SeriesId = null; book.SeriesIndex = null; }
+        db.Series.Remove(series);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public Task RenameUnsortedAsync(Guid folderId, string name, CancellationToken ct) =>
+        throw new NotSupportedException("未分系列不再是目录节点，请重命名实际文件夹。");
+
+    public Task<LibrarySeriesDetails> MoveSeriesAsync(Guid seriesId, Guid targetFolderId, CancellationToken ct) =>
+        throw new NotSupportedException("系列是独立标记，请拖动书籍或文件夹。");
+
+    public async Task<LibraryImportTarget> ResolveImportTargetAsync(Guid? folderId, Guid? seriesId,
+        string? libraryRoot, CancellationToken ct)
+    {
+        await using var db = await CreateOrganizationContextAsync(ct);
+        var folder = await db.LibraryFolders.SingleAsync(item => item.Id ==
+            (folderId ?? LibraryOrganizationDefaults.InboxFolderId), ct);
+        if (seriesId is { } id && !await db.Series.AnyAsync(item => item.Id == id, ct))
+            throw new InvalidOperationException("系列不存在。");
+        var root = string.IsNullOrWhiteSpace(libraryRoot) ? GetLibraryRoot() : Path.GetFullPath(libraryRoot);
+        var directory = Path.Combine(root, folder.RelativePath);
+        Directory.CreateDirectory(directory);
+        return new(folder.Id, seriesId, directory);
+    }
+
+    public async Task<LibraryMoveResult> MoveBooksAsync(LibraryMoveRequest request, CancellationToken ct)
+    {
+        if (request.BookIds.Count == 0) return new(0, [], null);
+        await using var db = await CreateOrganizationContextAsync(ct);
+        var folder = await db.LibraryFolders.SingleAsync(item => item.Id == request.FolderId, ct);
+        var ids = request.BookIds.Distinct().ToArray();
+        var books = await db.Books.Where(book => ids.Contains(book.Id)).ToListAsync(ct);
+        var failures = books.Where(book => !IsManagedExisting(book)).Select(book => new LibraryMoveFailure(
+            book.Id, book.Title, "仅能移动已存在的书库内 TXT 文件。")).ToList();
+        failures.AddRange(ids.Except(books.Select(book => book.Id)).Select(id =>
+            new LibraryMoveFailure(id, "未知书籍", "书库记录不存在。")));
+        if (failures.Count > 0) return new(0, failures, null);
+        foreach (var book in books) book.FolderId = folder.Id; // Keep series, tags, progress and annotations.
+        var backup = await MoveAndSaveAsync(db, books,
+            book => Path.Combine(FolderPath(folder), Path.GetFileName(book.FilePath)), request.OperationName, ct);
+        return new(books.Count, [], backup?.DirectoryPath);
+    }
+
+    public async Task<LibraryBackupResult?> BackupBooksAsync(IReadOnlyCollection<Guid> bookIds,
+        string operationName, CancellationToken ct)
+    {
+        if (bookIds.Count == 0) return null;
+        await using var db = await dbContextFactory.CreateDbContextAsync(ct);
         var ids = bookIds.Distinct().ToArray();
-        var books = await dbContext.Books.AsNoTracking()
-            .Where(book => ids.Contains(book.Id))
-            .ToListAsync(cancellationToken);
-        var existingBooks = books.Where(book => File.Exists(book.FilePath)).ToArray();
-        if (existingBooks.Length != ids.Length)
-        {
-            throw new FileNotFoundException("无法备份：部分书籍的 TXT 文件不存在。");
-        }
-
-        return await backupService.BackupAsync(
-            GetLibraryRoot(),
-            operationName,
-            existingBooks.Select(book => new LibraryBackupItem(book.Id, book.FilePath, null)).ToArray(),
-            cancellationToken);
+        var books = await db.Books.Where(book => ids.Contains(book.Id)).ToListAsync(ct);
+        if (books.Count != ids.Length || books.Any(book => !File.Exists(book.FilePath)))
+            throw new FileNotFoundException("无法备份：部分书籍文件不存在。");
+        return await backupService.BackupAsync(GetLibraryRoot(), operationName,
+            books.Select(book => new LibraryBackupItem(book.Id, book.FilePath, null)).ToArray(), ct);
     }
 
-    public async Task MigrateRootAsync(string targetRoot, CancellationToken cancellationToken)
+    public async Task MigrateRootAsync(string targetRoot, CancellationToken ct)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(targetRoot);
-        var destinationRoot = Path.GetFullPath(targetRoot.Trim());
-        Directory.CreateDirectory(destinationRoot);
-        await using var dbContext = await CreateOrganizationContextAsync(cancellationToken);
-        var books = await dbContext.Books
-            .Include(book => book.Folder)
-            .Include(book => book.Series)
-            .Where(book => book.StorageMode == BookStorageMode.ManagedCopy)
-            .ToListAsync(cancellationToken);
-        await MoveAndSaveAsync(
-            dbContext,
-            books.Where(IsManagedExisting).ToArray(),
-            book => BuildDestinationPath(
-                destinationRoot,
-                book.Folder?.Name ?? LibraryOrganizationDefaults.InboxFolderName,
-                book.Series?.Name ?? book.Folder?.UnsortedName ?? LibraryOrganizationDefaults.UnsortedName,
-                Path.GetFileName(book.FilePath)),
-            "迁移书库根目录",
-            cancellationToken,
-            backupRoot: destinationRoot);
+        var destination = Path.GetFullPath(targetRoot);
+        await using var db = await CreateOrganizationContextAsync(ct);
+        var folders = await db.LibraryFolders.ToListAsync(ct);
+        var books = await db.Books.Where(book => book.StorageMode == BookStorageMode.ManagedCopy).ToListAsync(ct);
+        if (books.Any(book => !File.Exists(book.FilePath)))
+            throw new FileNotFoundException("部分书籍文件丢失，无法迁移书库。");
+        foreach (var folder in folders) Directory.CreateDirectory(Path.Combine(destination, folder.RelativePath));
+        await MoveAndSaveAsync(db, books, book => Path.Combine(destination,
+            folders.Single(folder => folder.Id == book.FolderId).RelativePath, Path.GetFileName(book.FilePath)),
+            "迁移书库根目录", ct, destination);
+    }
+
+    private string FolderPath(LibraryFolder folder) => Path.Combine(GetLibraryRoot(), folder.RelativePath);
+
+    private static bool IsRelativeWithin(string parent, string path) =>
+        parent.Length == 0 ? path.Length > 0 : path.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWithin(string parent, string path) => IsRelativeWithin(
+        Path.GetFullPath(parent).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(path));
+
+    private void RebaseBook(Book book, string oldDirectory, string target)
+    {
+        var path = filePathNormalizer.Normalize(Path.Combine(target, Path.GetRelativePath(oldDirectory, book.FilePath)));
+        book.FilePath = path.FullPath;
+        book.NormalizedFilePath = path.ComparisonKey;
+        if (IsWithin(oldDirectory, book.SourceFilePath))
+        {
+            var source = filePathNormalizer.Normalize(Path.Combine(target, Path.GetRelativePath(oldDirectory, book.SourceFilePath)));
+            book.SourceFilePath = source.FullPath;
+            book.NormalizedSourceFilePath = source.ComparisonKey;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateSafeFiles(string directory)
+    {
+        var pending = new Stack<string>();
+        pending.Push(directory);
+        while (pending.TryPop(out var current))
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(current))
+            {
+                var attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("目录包含符号链接或联接，无法安全移动。");
+                if ((attributes & FileAttributes.Directory) != 0) pending.Push(entry);
+                else yield return entry;
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateVisibleDirectories(string root)
+    {
+        var pending = new Stack<string>();
+        if (Directory.Exists(root)) pending.Push(root);
+        while (pending.TryPop(out var current))
+        {
+            string[] children;
+            try { children = Directory.GetDirectories(current); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { continue; }
+            foreach (var child in children)
+            {
+                if (Path.GetFileName(child).Equals(LibraryBackupService.BackupDirectoryName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                FileAttributes attributes;
+                try { attributes = File.GetAttributes(child); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { continue; }
+                if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+                yield return child;
+                pending.Push(child);
+            }
+        }
+    }
+
+    private static void MoveDirectory(string source, string target)
+    {
+        if (!source.Equals(target, StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.Move(source, target);
+            return;
+        }
+        var temporary = source + ".rename-" + Guid.NewGuid().ToString("N");
+        Directory.Move(source, temporary);
+        try { Directory.Move(temporary, target); }
+        catch { Directory.Move(temporary, source); throw; }
     }
 
     private async Task<LibraryBackupResult?> MoveAndSaveAsync(
@@ -649,6 +567,11 @@ public sealed class LibraryOrganizationService(
                 }
 
                 var normalized = filePathNormalizer.Normalize(destinationPath);
+                if (book.SourceFilePath.Equals(book.FilePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    book.SourceFilePath = normalized.FullPath;
+                    book.NormalizedSourceFilePath = normalized.ComparisonKey;
+                }
                 book.FilePath = normalized.FullPath;
                 book.NormalizedFilePath = normalized.ComparisonKey;
             }
@@ -697,27 +620,6 @@ public sealed class LibraryOrganizationService(
                 : settingsService.Current.LibraryFolder.Trim());
     }
 
-    private static string EnsureOrganizationDirectory(
-        string root,
-        string folderName,
-        string organizationName)
-    {
-        var directory = Path.Combine(root, folderName, organizationName);
-        Directory.CreateDirectory(directory);
-        return directory;
-    }
-
-    private static string BuildDestinationPath(
-        string root,
-        string folderName,
-        string organizationName,
-        string fileName)
-    {
-        return Path.Combine(
-            EnsureOrganizationDirectory(root, folderName, organizationName),
-            fileName);
-    }
-
     private static string GetAvailablePath(
         string requestedPath,
         string currentPath,
@@ -759,24 +661,27 @@ public sealed class LibraryOrganizationService(
             return;
         }
 
-        await using var source = new FileStream(
-            sourcePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            CopyBufferSize,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await using var destination = new FileStream(
-            destinationPath,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            CopyBufferSize,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await source.CopyToAsync(destination, CopyBufferSize, cancellationToken);
-        await destination.FlushAsync(cancellationToken);
-        File.SetLastWriteTimeUtc(destinationPath, File.GetLastWriteTimeUtc(sourcePath));
-        File.Delete(sourcePath);
+        var destinationCreated = false;
+        try
+        {
+            await using (var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read,
+                FileShare.Read, CopyBufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var destination = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, CopyBufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                destinationCreated = true;
+                await source.CopyToAsync(destination, CopyBufferSize, cancellationToken);
+                await destination.FlushAsync(cancellationToken);
+            }
+            File.SetLastWriteTimeUtc(destinationPath, File.GetLastWriteTimeUtc(sourcePath));
+            File.Delete(sourcePath);
+        }
+        catch
+        {
+            if (destinationCreated && File.Exists(sourcePath) && File.Exists(destinationPath))
+                File.Delete(destinationPath);
+            throw;
+        }
     }
 
     private static bool IsManagedExisting(Book book)

@@ -124,9 +124,36 @@ public sealed class TextImportService(
                     detectedEncoding = encodingDetector.GetUserOverride(request.FallbackEncoding);
                 }
 
+                var fileTarget = importTarget;
+                var managedRoot = GetManagedLibraryDirectory(request.ManagedLibraryDirectory);
+                if (fileTarget is not null && IsPathWithinDirectory(sourcePath, managedRoot))
+                {
+                    var folder = await organizationService.EnsureFolderPathAsync(
+                        Path.GetRelativePath(managedRoot, Path.GetDirectoryName(sourcePath)!), cancellationToken);
+                    fileTarget = await organizationService.ResolveImportTargetAsync(
+                        folder.Id, request.TargetSeriesId, managedRoot, cancellationToken);
+                }
+                else if (fileTarget is not null && request.PreserveDirectoryStructure)
+                {
+                    var sourceDirectory = request.Paths.Where(Directory.Exists)
+                        .Select(Path.GetFullPath)
+                        .Where(directory => IsPathWithinDirectory(sourcePath, directory))
+                        .OrderByDescending(directory => directory.Length).FirstOrDefault();
+                    if (sourceDirectory is not null)
+                    {
+                        var root = GetManagedLibraryDirectory(request.ManagedLibraryDirectory);
+                        var relative = Path.Combine(
+                            Path.GetRelativePath(root, fileTarget.DestinationDirectory),
+                            Path.GetFileName(sourceDirectory.TrimEnd(Path.DirectorySeparatorChar)),
+                            Path.GetRelativePath(sourceDirectory, Path.GetDirectoryName(sourcePath)!));
+                        var folder = await organizationService.EnsureFolderPathAsync(relative, cancellationToken);
+                        fileTarget = await organizationService.ResolveImportTargetAsync(
+                            folder.Id, request.TargetSeriesId, root, cancellationToken);
+                    }
+                }
                 var storedPath = sourcePath;
-                if (importTarget is not null
-                    && !IsPathWithinDirectory(sourcePath, importTarget.DestinationDirectory))
+                if (fileTarget is not null
+                    && !IsPathWithinDirectory(sourcePath, fileTarget.DestinationDirectory))
                 {
                     ReportProgress(
                         progress,
@@ -140,7 +167,7 @@ public sealed class TextImportService(
                         sourcePath);
                     storedPath = await managedFileStore.CopyAsync(
                         sourcePath,
-                        importTarget.DestinationDirectory,
+                        fileTarget.DestinationDirectory,
                         cancellationToken);
                     copiedFilePath = storedPath;
                 }
@@ -165,8 +192,8 @@ public sealed class TextImportService(
                         LastWriteTimeUtc = sourceInfo.LastWriteTimeUtc,
                         FileEncoding = detectedEncoding.EncodingName,
                         StorageMode = request.StorageMode,
-                        FolderId = importTarget?.FolderId,
-                        SeriesId = importTarget?.SeriesId,
+                        FolderId = fileTarget?.FolderId,
+                        SeriesId = fileTarget?.SeriesId,
                     },
                     cancellationToken);
 

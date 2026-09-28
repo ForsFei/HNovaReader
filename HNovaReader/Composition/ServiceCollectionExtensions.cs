@@ -47,6 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITextEncodingDetector, TextEncodingDetector>();
         services.AddSingleton<IManagedBookFileStore, ManagedBookFileStore>();
         services.AddSingleton<ITextImportService, TextImportService>();
+        services.AddSingleton<ILibrarySyncService, LibrarySyncService>();
         services.AddSingleton<IChapterDetector, ChapterDetector>();
         services.AddSingleton<ITextIndexStore, EfTextIndexStore>();
         services.AddSingleton<IReadingPositionService, EfReadingPositionService>();

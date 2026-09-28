@@ -7,6 +7,29 @@ namespace HNovaReader.Tests.Features;
 public sealed class SettingsViewModelTests
 {
     [Fact]
+    public async Task SaveCommand_PersistsLibraryUpdatePreferences()
+    {
+        var settings = new StubAppSettingsService();
+        var viewModel = new SettingsViewModel(new StubThemeService(), settings,
+            new StubSettingsInteractionService(),
+            new StubLibraryOrganizationService(new StubLibraryService()), new StubAppPaths())
+        {
+            AutoUpdateLibrary = true,
+            LibraryUpdateIntervalMinutes = 30,
+        };
+
+        await viewModel.SaveCommand.ExecuteAsync(null);
+
+        Assert.True(settings.Current.AutoUpdateLibrary);
+        Assert.Equal(30, settings.Current.LibraryUpdateIntervalMinutes);
+        var reloaded = new SettingsViewModel(new StubThemeService(), settings,
+            new StubSettingsInteractionService(),
+            new StubLibraryOrganizationService(new StubLibraryService()), new StubAppPaths());
+        Assert.True(reloaded.AutoUpdateLibrary);
+        Assert.Equal(30, reloaded.LibraryUpdateIntervalMinutes);
+    }
+
+    [Fact]
     public async Task ApplyThemeCommand_UpdatesServiceSelectedThemeAndSettings()
     {
         var themeService = new StubThemeService();

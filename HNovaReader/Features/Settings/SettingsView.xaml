@@ -3,9 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:data="clr-namespace:HNovaReader.Data.Entities"
              xmlns:preferences="clr-namespace:HNovaReader.Services.Settings"
-             xmlns:theming="clr-namespace:HNovaReader.Services.Theming">
+             xmlns:theming="clr-namespace:HNovaReader.Services.Theming"
+             Background="{DynamicResource AppBackgroundBrush}">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <Grid Margin="44,36">
+        <Grid Margin="32,30" MaxWidth="1080" HorizontalAlignment="Stretch" TextElement.Foreground="{DynamicResource TextPrimaryBrush}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="24" />
@@ -28,7 +29,7 @@
             <Border Grid.Row="2" Style="{StaticResource HNova.Card}">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="210" />
+                        <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
@@ -37,33 +38,47 @@
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    Text="{Binding SelectedThemeDisplay, StringFormat=当前：{0}}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" HorizontalAlignment="Right" Orientation="Horizontal">
-                        <Button Margin="0,0,8,0"
+                    <Border Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource HNova.SegmentGroup}">
+                    <StackPanel Orientation="Horizontal">
+                        <Button
                                 Command="{Binding ApplyThemeCommand}"
                                 CommandParameter="{x:Static theming:AppTheme.Dark}"
                                 Content="深色"
-                                Style="{StaticResource HNova.SecondaryButton}" />
-                        <Button Margin="0,0,8,0"
+                                >
+                            <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                <Style.Triggers><DataTrigger Binding="{Binding SelectedTheme}" Value="{x:Static theming:AppTheme.Dark}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                            </Style></Button.Style>
+                        </Button>
+                        <Button
                                 Command="{Binding ApplyThemeCommand}"
                                 CommandParameter="{x:Static theming:AppTheme.Light}"
                                 Content="浅色"
-                                Style="{StaticResource HNova.SecondaryButton}" />
+                                >
+                            <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                <Style.Triggers><DataTrigger Binding="{Binding SelectedTheme}" Value="{x:Static theming:AppTheme.Light}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                            </Style></Button.Style>
+                        </Button>
                         <Button Command="{Binding ApplyThemeCommand}"
                                 CommandParameter="{x:Static theming:AppTheme.System}"
                                 Content="跟随系统"
-                                Style="{StaticResource HNova.SecondaryButton}" />
+                                >
+                            <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                <Style.Triggers><DataTrigger Binding="{Binding SelectedTheme}" Value="{x:Static theming:AppTheme.System}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                            </Style></Button.Style>
+                        </Button>
                     </StackPanel>
+                    </Border>
                 </Grid>
             </Border>
 
             <Border Grid.Row="4" Style="{StaticResource HNova.Card}">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="210" />
-                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="24" />
-                        <ColumnDefinition Width="210" />
-                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -76,7 +91,7 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock FontSize="15" FontWeight="SemiBold" Text="阅读器外观" />
-                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Reader Theme" />
+                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="阅读主题" />
                     <ComboBox Grid.Row="2"
                               Grid.Column="1"
                               SelectedValue="{Binding SelectedReaderTheme}"
@@ -125,11 +140,11 @@
             <Border Grid.Row="6" Style="{StaticResource HNova.Card}">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="210" />
-                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="24" />
-                        <ColumnDefinition Width="210" />
-                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -137,8 +152,10 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="14" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="18" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <TextBlock FontSize="15" FontWeight="SemiBold" Text="导入与窗口" />
+                    <TextBlock FontSize="15" FontWeight="SemiBold" Text="导入与书库更新" />
                     <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="导入行为" />
                     <ComboBox Grid.Row="2"
                               Grid.Column="1"
@@ -168,6 +185,19 @@
                               VerticalAlignment="Center"
                               Content="记住窗口大小"
                               IsChecked="{Binding RememberWindowSize}" />
+                    <StackPanel Grid.Row="6" Grid.ColumnSpan="5">
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox VerticalAlignment="Center" Content="自动定期更新书库"
+                                      IsChecked="{Binding AutoUpdateLibrary}" />
+                            <TextBlock Margin="20,0,8,0" VerticalAlignment="Center" Text="每隔" />
+                            <TextBox Width="68" IsEnabled="{Binding AutoUpdateLibrary}"
+                                     Text="{Binding LibraryUpdateIntervalMinutes}" ToolTip="1–1440 分钟" />
+                            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="分钟" />
+                        </StackPanel>
+                        <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap" FontSize="11"
+                                   Text="程序运行时扫描书库根目录，自动导入新增 TXT、移除已删除文件的书库记录；备份文件夹不会参与更新。" />
+                    </StackPanel>
                 </Grid>
             </Border>
 

@@ -17,6 +17,7 @@
     <SolidColorBrush x:Key="DangerBrush" Color="#DC2626" />
     <SolidColorBrush x:Key="FavoriteBrush" Color="#B86B00" />
     <SolidColorBrush x:Key="FocusBrush" Color="#330284C7" />
+    <SolidColorBrush x:Key="TreeSelectionBrush" Color="#E0EDF4" />
     <SolidColorBrush x:Key="HighlightYellowBrush" Color="#73F2CF66" />
     <SolidColorBrush x:Key="HighlightBlueBrush" Color="#665BBCEB" />
     <SolidColorBrush x:Key="HighlightGreenBrush" Color="#666FD3A8" />

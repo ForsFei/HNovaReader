@@ -12,6 +12,30 @@ namespace HNovaReader.Tests.Services;
 public sealed class TextImportServiceTests
 {
     [Fact]
+    public async Task ImportFolder_PreservesNestedDirectoryStructure()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await SqliteTestDatabase.CreateAsync(ct);
+        var source = Path.Combine(database.RootDirectory, "资料");
+        var nested = Path.Combine(source, "作者", "合集", "卷一", "章节");
+        Directory.CreateDirectory(nested);
+        var path = Path.Combine(nested, "小说.txt");
+        await File.WriteAllTextAsync(path, "正文", ct);
+        var target = Path.Combine(database.RootDirectory, "Managed");
+        var result = await CreateService(database).ImportAsync(new TextImportRequest
+        {
+            Paths = [source],
+            ManagedLibraryDirectory = target,
+        }, null, ct);
+        Assert.Equal(1, result.ImportedCount);
+        var book = Assert.Single(result.Items).Book!;
+        Assert.Equal(Path.Combine(target, "收件箱", "资料", "作者", "合集", "卷一", "章节", "小说.txt"), book.FilePath);
+        Assert.Null(book.SeriesId);
+        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(book.FilePath));
+    }
+
+    [Fact]
     public async Task ImportAsync_ImportsFolderInPlaceAndReportsCompletedProgress()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -66,8 +90,7 @@ public sealed class TextImportServiceTests
         var managedDirectory = Path.Combine(database.RootDirectory, "Managed");
         var defaultTargetDirectory = Path.Combine(
             managedDirectory,
-            LibraryOrganizationDefaults.InboxFolderName,
-            LibraryOrganizationDefaults.UnsortedName);
+            LibraryOrganizationDefaults.InboxFolderName);
         Directory.CreateDirectory(sourceDirectory);
         Directory.CreateDirectory(defaultTargetDirectory);
         var sourcePath = Path.Combine(sourceDirectory, "同名书.txt");

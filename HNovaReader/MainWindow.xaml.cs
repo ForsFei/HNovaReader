@@ -11,7 +11,7 @@ namespace HNovaReader;
 
 public partial class MainWindow : Window
 {
-    private const string SeriesDragDataFormat = "HNovaReader.LibrarySeriesId";
+    private const string SeriesDragDataFormat = "HNovaReader.LibraryFolderId";
     private readonly ShellViewModel _viewModel;
     private readonly IAppSettingsService _settingsService;
     private bool _shutdownStarted;
@@ -68,7 +68,7 @@ public partial class MainWindow : Window
     {
         _treeDragStart = e.GetPosition(this);
         _treeDragSeries = FindTreeViewItem(e.OriginalSource as DependencyObject)?.DataContext
-            is LibraryTreeNodeViewModel { Kind: LibraryTreeNodeKind.Series } series
+            is LibraryTreeNodeViewModel { IsSystem: false } series
             ? series
             : null;
     }
@@ -90,7 +90,7 @@ public partial class MainWindow : Window
         var series = _treeDragSeries;
         _treeDragSeries = null;
         var data = new DataObject();
-        data.SetData(SeriesDragDataFormat, series.SeriesId!.Value);
+        data.SetData(SeriesDragDataFormat, series.FolderId);
         DragDrop.DoDragDrop(LibraryTree, data, DragDropEffects.Move);
     }
 
@@ -156,7 +156,7 @@ public partial class MainWindow : Window
             && e.Data.GetDataPresent(SeriesDragDataFormat)
             && e.Data.GetData(SeriesDragDataFormat) is Guid seriesId)
         {
-            await _viewModel.MoveSeriesAsync(seriesId, target);
+            await _viewModel.MoveFolderAsync(seriesId, target);
             return;
         }
 

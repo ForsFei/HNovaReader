@@ -16,11 +16,8 @@ public sealed class SeriesConfiguration : IEntityTypeConfiguration<Series>
         builder.Property(series => series.NormalizedName)
             .HasMaxLength(200)
             .IsRequired();
-        builder.HasIndex(series => new { series.FolderId, series.NormalizedName })
+        builder.HasIndex(series => series.NormalizedName)
             .IsUnique();
-        builder.HasOne(series => series.Folder)
-            .WithMany(folder => folder.Series)
-            .HasForeignKey(series => series.FolderId)
-            .OnDelete(DeleteBehavior.Cascade);
+        builder.Ignore(series => series.Folder);
     }
 }

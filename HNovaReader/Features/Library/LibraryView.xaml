@@ -8,99 +8,14 @@
     <UserControl.Resources>
         <library:CoverImageConverter x:Key="CoverImageConverter" />
 
-        <Style x:Key="BookContextMenuStyle" TargetType="ContextMenu">
-            <Setter Property="MinWidth" Value="196" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="HasDropShadow" Value="True" />
-            <Setter Property="OverridesDefaultStyle" Value="True" />
-            <Setter Property="ItemsPanel">
-                <Setter.Value>
-                    <ItemsPanelTemplate>
-                        <StackPanel />
-                    </ItemsPanelTemplate>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ContextMenu">
-                        <Border Padding="6"
-                                Background="{DynamicResource SurfaceRaisedBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="10"
-                                SnapsToDevicePixels="True">
-                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="BookMenuItemStyle" TargetType="MenuItem">
-            <Setter Property="MinHeight" Value="34" />
-            <Setter Property="Padding" Value="13,8" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="Chrome"
-                                Margin="0,1"
-                                Padding="{TemplateBinding Padding}"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="6"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Left"
-                                              VerticalAlignment="Center"
-                                              ContentSource="Header"
-                                              RecognizesAccessKey="True" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Chrome"
-                                        Property="Background"
-                                        Value="{DynamicResource SurfaceHoverBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter TargetName="Chrome"
-                                        Property="Background"
-                                        Value="{DynamicResource FocusBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.42" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="BookMenuSeparatorStyle" TargetType="Separator">
-            <Setter Property="Margin" Value="11,5" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Separator">
-                        <Border Height="1"
-                                Background="{DynamicResource BorderSubtleBrush}"
-                                SnapsToDevicePixels="True" />
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
 
         <ContextMenu x:Key="BookContextMenu"
                      x:Shared="False"
                      DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
-                     Style="{StaticResource BookContextMenuStyle}">
+                     Style="{StaticResource HNova.ContextMenu}">
             <ContextMenu.Resources>
-                <Style BasedOn="{StaticResource BookMenuItemStyle}" TargetType="MenuItem" />
-                <Style BasedOn="{StaticResource BookMenuSeparatorStyle}" TargetType="Separator" />
+                <Style BasedOn="{StaticResource HNova.MenuItem}" TargetType="MenuItem" />
+                <Style BasedOn="{StaticResource HNova.MenuSeparator}" TargetType="Separator" />
             </ContextMenu.Resources>
             <MenuItem Command="{Binding OpenCommand}" Header="{Binding PrimaryActionText}" />
             <MenuItem Command="{Binding ToggleFavoriteCommand}" Header="{Binding FavoriteActionText}" />
@@ -385,9 +300,9 @@
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Command="{Binding RefreshCommand}"
-                            Content="↻"
-                            Style="{StaticResource HNova.IconButton}"
-                            ToolTip="刷新书库" />
+                            Content="↻  更新书库"
+                            Style="{StaticResource HNova.SecondaryButton}"
+                            ToolTip="扫描本地书库文件夹，同步新增和删除的 TXT" />
                     <Button Margin="8,0,0,0" Command="{Binding ShowGridCommand}" Content="▦">
                         <Button.Style>
                             <Style BasedOn="{StaticResource HNova.IconButton}" TargetType="Button">

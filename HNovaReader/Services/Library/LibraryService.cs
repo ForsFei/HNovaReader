@@ -63,7 +63,8 @@ public sealed class LibraryService(
         return await dbContext.Books
             .AsNoTracking()
             .AnyAsync(
-                book => book.NormalizedSourceFilePath == normalizedPath.ComparisonKey,
+                book => book.NormalizedSourceFilePath == normalizedPath.ComparisonKey
+                    || book.NormalizedFilePath == normalizedPath.ComparisonKey,
                 cancellationToken);
     }
 
@@ -82,7 +83,8 @@ public sealed class LibraryService(
 
         await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         if (await dbContext.Books.AnyAsync(
-                book => book.NormalizedSourceFilePath == normalizedSourcePath.ComparisonKey,
+                book => book.NormalizedSourceFilePath == normalizedSourcePath.ComparisonKey
+                    || book.NormalizedFilePath == normalizedPath.ComparisonKey,
                 cancellationToken))
         {
             throw new DuplicateBookException(normalizedSourcePath.FullPath);
@@ -346,6 +348,8 @@ public sealed class LibraryService(
             Id = LibraryOrganizationDefaults.InboxFolderId,
             Name = LibraryOrganizationDefaults.InboxFolderName,
             NormalizedName = LibraryNameRules.Normalize(LibraryOrganizationDefaults.InboxFolderName),
+            RelativePath = LibraryOrganizationDefaults.InboxFolderName,
+            NormalizedRelativePath = LibraryNameRules.Normalize(LibraryOrganizationDefaults.InboxFolderName),
             UnsortedName = LibraryOrganizationDefaults.UnsortedName,
             SortOrder = int.MinValue,
             IsSystem = true,
@@ -364,9 +368,9 @@ public sealed class LibraryService(
         if (seriesId is { } requestedSeriesId)
         {
             return await dbContext.Series.SingleOrDefaultAsync(
-                candidate => candidate.Id == requestedSeriesId && candidate.FolderId == folder.Id,
+                candidate => candidate.Id == requestedSeriesId,
                 cancellationToken)
-                ?? throw new InvalidOperationException("指定的系列不存在或不属于目标书架。");
+                ?? throw new InvalidOperationException("指定的系列不存在。");
         }
 
         var cleanedName = CleanOptional(name, 200, nameof(name));
@@ -376,14 +380,8 @@ public sealed class LibraryService(
         }
 
         var normalizedName = NormalizeName(cleanedName);
-        if (LibraryNameRules.Normalize(folder.UnsortedName) == normalizedName)
-        {
-            throw new InvalidOperationException($"“{cleanedName}”是该书架的未分系列名称。");
-        }
-
         var series = await dbContext.Series.SingleOrDefaultAsync(
-            candidate => candidate.FolderId == folder.Id
-                && candidate.NormalizedName == normalizedName,
+            candidate => candidate.NormalizedName == normalizedName,
             cancellationToken);
 
         if (series is not null)
@@ -394,7 +392,6 @@ public sealed class LibraryService(
         series = new Series
         {
             Id = Guid.NewGuid(),
-            FolderId = folder.Id,
             Name = cleanedName,
             NormalizedName = normalizedName,
         };

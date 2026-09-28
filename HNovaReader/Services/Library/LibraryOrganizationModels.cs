@@ -10,7 +10,9 @@ public sealed record LibraryFolderDetails(
     string UnsortedName,
     int UnsortedBookCount,
     int BookCount,
-    IReadOnlyList<LibrarySeriesDetails> Series);
+    IReadOnlyList<LibrarySeriesDetails> Series,
+    Guid? ParentId = null,
+    string RelativePath = "");
 
 public sealed record LibraryMoveRequest(
     IReadOnlyCollection<Guid> BookIds,

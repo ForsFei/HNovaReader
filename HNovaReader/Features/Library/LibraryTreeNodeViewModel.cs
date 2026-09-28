@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using HNovaReader.Services.Library;
 
 namespace HNovaReader.Features.Library;
 
@@ -24,16 +25,15 @@ public sealed partial class LibraryTreeNodeViewModel : ObservableObject
 
     public bool IsSystem { get; init; }
 
+    public string RelativePath { get; init; } = "";
+
     public ObservableCollection<LibraryTreeNodeViewModel> Children { get; } = [];
 
-    public bool CanCreateSeries => Kind == LibraryTreeNodeKind.Folder;
+    public bool CanRename => FolderId != LibraryOrganizationDefaults.RootFolderId;
 
-    public bool CanRename => true;
+    public bool CanDelete => !IsSystem;
 
-    public bool CanDelete => Kind == LibraryTreeNodeKind.Series
-        || (Kind == LibraryTreeNodeKind.Folder && !IsSystem);
-
-    public string DeleteActionText => Kind == LibraryTreeNodeKind.Series ? "删除系列" : "删除文件夹";
+    public string DeleteActionText => "删除文件夹";
 
     [ObservableProperty]
     private bool isExpanded = true;

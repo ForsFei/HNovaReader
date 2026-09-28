@@ -44,8 +44,8 @@ public sealed class DatabaseInitializerTests
         var legacyFolderId = Guid.NewGuid();
         await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
-            INSERT INTO LibraryFolders (Id, Name, NormalizedName, SortOrder, IsSystem)
-            VALUES ({legacyFolderId}, '旧书架', '旧书架', 10, 0)
+            INSERT INTO LibraryFolders (Id, Name, NormalizedName, RelativePath, NormalizedRelativePath, UnsortedName, SortOrder, IsSystem)
+            VALUES ({legacyFolderId}, '旧书架', '旧书架', '旧书架', '旧书架', '未分系列', 10, 0)
             """,
             cancellationToken);
         dbContext.ChangeTracker.Clear();

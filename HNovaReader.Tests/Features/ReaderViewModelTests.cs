@@ -9,6 +9,27 @@ namespace HNovaReader.Tests.Features;
 public sealed class ReaderViewModelTests
 {
     [Fact]
+    public void Panels_StartClosedAndFocusRestoresOnlyPreviouslyOpenedPanels()
+    {
+        var viewModel = new ReaderViewModel(
+            new StubReaderEngineFactory(),
+            new StubReadingPositionService(),
+            new StubReaderAnnotationService(),
+            new StubAppSettingsService(),
+            new StubTextFileEditService(),
+            new StubLibraryService());
+        Assert.False(viewModel.IsCatalogVisible);
+        Assert.False(viewModel.IsAnnotationsVisible);
+        viewModel.ToggleCatalogCommand.Execute(null);
+        viewModel.ToggleFocusModeCommand.Execute(null);
+        Assert.False(viewModel.IsCatalogVisible);
+        Assert.False(viewModel.IsAnnotationsVisible);
+        viewModel.ToggleFocusModeCommand.Execute(null);
+        Assert.True(viewModel.IsCatalogVisible);
+        Assert.False(viewModel.IsAnnotationsVisible);
+    }
+
+    [Fact]
     public async Task OpenBookAsync_RestoresCharacterAnchorAndFlushesOnLeave()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

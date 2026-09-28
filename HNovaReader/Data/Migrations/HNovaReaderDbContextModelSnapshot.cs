@@ -381,6 +381,19 @@ namespace HNovaReader.Data.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("NormalizedRelativePath")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("INTEGER");
 
@@ -391,8 +404,10 @@ namespace HNovaReader.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("NormalizedName")
+                    b.HasIndex("NormalizedRelativePath")
                         .IsUnique();
+
+                    b.HasIndex("ParentId");
 
                     b.HasIndex("SortOrder");
 
@@ -544,7 +559,7 @@ namespace HNovaReader.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FolderId", "NormalizedName")
+                    b.HasIndex("NormalizedName")
                         .IsUnique();
 
                     b.ToTable("Series", (string)null);
@@ -682,6 +697,14 @@ namespace HNovaReader.Data.Migrations
                     b.Navigation("Book");
                 });
 
+            modelBuilder.Entity("HNovaReader.Data.Entities.LibraryFolder", b =>
+                {
+                    b.HasOne("HNovaReader.Data.Entities.LibraryFolder", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("HNovaReader.Data.Entities.Note", b =>
                 {
                     b.HasOne("HNovaReader.Data.Entities.Book", "Book")
@@ -709,16 +732,6 @@ namespace HNovaReader.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Book");
-                });
-
-            modelBuilder.Entity("HNovaReader.Data.Entities.Series", b =>
-                {
-                    b.HasOne("HNovaReader.Data.Entities.LibraryFolder", "Folder")
-                        .WithMany("Series")
-                        .HasForeignKey("FolderId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
-                    b.Navigation("Folder");
                 });
 
             modelBuilder.Entity("HNovaReader.Data.Entities.TextCheckpoint", b =>
@@ -767,8 +780,6 @@ namespace HNovaReader.Data.Migrations
             modelBuilder.Entity("HNovaReader.Data.Entities.LibraryFolder", b =>
                 {
                     b.Navigation("Books");
-
-                    b.Navigation("Series");
                 });
 
             modelBuilder.Entity("HNovaReader.Data.Entities.Series", b =>

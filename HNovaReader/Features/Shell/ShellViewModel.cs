@@ -92,7 +92,6 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                     ManagedLibraryDirectory = _settingsService.Current.LibraryFolder,
                     FallbackEncoding = _settingsService.Current.DefaultTextEncoding,
                     TargetFolderId = target?.FolderId,
-                    TargetSeriesId = target?.Kind == LibraryTreeNodeKind.Series ? target.SeriesId : null,
                 },
                 progress,
                 _importCancellationSource.Token);
@@ -130,9 +129,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         return _libraryViewModel.MoveSelectedBooksAsync(target);
     }
 
-    public Task MoveSeriesAsync(Guid seriesId, LibraryTreeNodeViewModel target)
+    public Task MoveFolderAsync(Guid folderId, LibraryTreeNodeViewModel target)
     {
-        return _libraryViewModel.MoveSeriesAsync(seriesId, target);
+        return _libraryViewModel.MoveFolderAsync(folderId, target);
     }
 
     [RelayCommand(CanExecute = nameof(IsImporting))]

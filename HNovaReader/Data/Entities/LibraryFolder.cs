@@ -8,6 +8,12 @@ public sealed class LibraryFolder
 
     public string NormalizedName { get; set; } = string.Empty;
 
+    public Guid? ParentId { get; set; }
+
+    public string RelativePath { get; set; } = string.Empty;
+
+    public string NormalizedRelativePath { get; set; } = string.Empty;
+
     public string UnsortedName { get; set; } = Services.Library.LibraryOrganizationDefaults.UnsortedName;
 
     public int SortOrder { get; set; }

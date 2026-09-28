@@ -34,7 +34,7 @@
                     Command="{Binding ToggleCatalogCommand}" />
     </UserControl.InputBindings>
 
-    <Grid Background="{DynamicResource AppBackgroundBrush}">
+    <Grid Background="{DynamicResource AppBackgroundBrush}" TextElement.Foreground="{DynamicResource TextPrimaryBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="58" />
             <RowDefinition Height="*" />
@@ -57,11 +57,14 @@
                             ToolTip="返回书库" />
                     <Button Margin="6,0,0,0"
                             Command="{Binding ToggleCatalogCommand}"
-                            Content="☷"
-                            Style="{StaticResource HNova.IconButton}"
-                            ToolTip="显示或隐藏目录（Ctrl+Shift+L）" />
+                            Content="目录"
+                            ToolTip="显示或隐藏目录（Ctrl+Shift+L）">
+                        <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                            <Style.Triggers><DataTrigger Binding="{Binding IsCatalogVisible}" Value="True"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                        </Style></Button.Style>
+                    </Button>
                     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                        <TextBlock MaxWidth="320"
+                        <TextBlock MaxWidth="220"
                                    FontSize="14"
                                    FontWeight="SemiBold"
                                    Text="{Binding BookTitle}"
@@ -74,6 +77,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1"
+                            Visibility="Collapsed"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center">
                     <TextBlock HorizontalAlignment="Center"
@@ -88,146 +92,69 @@
                                Text="{Binding ReadingLayoutText}" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="2"
-                             VerticalAlignment="Center"
-                             Orientation="Horizontal">
-                    <Button Width="62"
-                            Height="32"
-                            Margin="0,0,6,0"
-                            Padding="0"
-                            Command="{Binding BeginEditCommand}"
-                            Content="编辑"
-                            ToolTip="编辑当前加载的 TXT 片段">
-                        <Button.Style>
-                            <Style BasedOn="{StaticResource HNova.SecondaryButton}" TargetType="Button">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsEditMode}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Orientation="Horizontal">
+                    <Border Margin="0,0,8,0" Style="{StaticResource HNova.SegmentGroup}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding CancelEditCommand}" Content="只读" ToolTip="退出编辑并放弃未保存的修改">
+                                <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                    <Style.Triggers><DataTrigger Binding="{Binding IsEditMode}" Value="False"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                                </Style></Button.Style>
+                            </Button>
+                            <Button Command="{Binding BeginEditCommand}" Content="编辑" ToolTip="编辑当前 TXT 片段">
+                                <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                    <Style.Triggers><DataTrigger Binding="{Binding IsEditMode}" Value="True"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                                </Style></Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                    <Button Margin="0,0,8,0" Padding="12,0" Height="34" Command="{Binding SaveEditCommand}" Content="保存">
+                        <Button.Style><Style BasedOn="{StaticResource HNova.PrimaryButton}" TargetType="Button">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding IsEditMode}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style></Button.Style>
                     </Button>
-                    <Button Width="62"
-                            Height="32"
-                            Margin="0,0,6,0"
-                            Padding="0"
-                            Command="{Binding CancelEditCommand}"
-                            Content="取消">
-                        <Button.Style>
-                            <Style BasedOn="{StaticResource HNova.SecondaryButton}" TargetType="Button">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsEditMode}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
+                    <Border Margin="0,0,8,0" Style="{StaticResource HNova.SegmentGroup}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding ApplyReaderThemeCommand}" CommandParameter="{x:Static preferences:ReaderTheme.Light}" Content="浅色">
+                                <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                    <Style.Triggers><DataTrigger Binding="{Binding ReaderTheme}" Value="{x:Static preferences:ReaderTheme.Light}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                                </Style></Button.Style>
+                            </Button>
+                            <Button Command="{Binding ApplyReaderThemeCommand}" CommandParameter="{x:Static preferences:ReaderTheme.Dark}" Content="深色">
+                                <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                    <Style.Triggers><DataTrigger Binding="{Binding ReaderTheme}" Value="{x:Static preferences:ReaderTheme.Dark}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                                </Style></Button.Style>
+                            </Button>
+                            <Button Command="{Binding ApplyReaderThemeCommand}" CommandParameter="{x:Static preferences:ReaderTheme.Sepia}" Content="护眼">
+                                <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                    <Style.Triggers><DataTrigger Binding="{Binding ReaderTheme}" Value="{x:Static preferences:ReaderTheme.Sepia}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                                </Style></Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="0,0,8,0" Style="{StaticResource HNova.SegmentGroup}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding UseScrollLayoutCommand}" Content="Scroll" ToolTip="连续滚动">
+                                <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                    <Style.Triggers><DataTrigger Binding="{Binding ReadingLayoutMode}" Value="{x:Static reader:ReaderLayoutMode.Scroll}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                                </Style></Button.Style>
+                            </Button>
+                            <Button Command="{Binding UsePagedLayoutCommand}" Content="Paged" ToolTip="分页阅读">
+                                <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                                    <Style.Triggers><DataTrigger Binding="{Binding ReadingLayoutMode}" Value="{x:Static reader:ReaderLayoutMode.Paged}"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                                </Style></Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                    <Button Width="30" Command="{Binding DecreaseFontSizeCommand}" Content="A−" Style="{StaticResource HNova.IconButton}" ToolTip="减小字号" />
+                    <TextBlock Width="28" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" Text="{Binding ReaderFontSize, StringFormat={}{0:0}}" TextAlignment="Center" />
+                    <Button Width="30" Command="{Binding IncreaseFontSizeCommand}" Content="A+" Style="{StaticResource HNova.IconButton}" ToolTip="增大字号" />
+                    <Button Margin="6,0,0,0" Command="{Binding ToggleAnnotationsCommand}" Content="笔记" ToolTip="显示或隐藏书签、标注和笔记">
+                        <Button.Style><Style BasedOn="{StaticResource HNova.Segment}" TargetType="Button">
+                            <Style.Triggers><DataTrigger Binding="{Binding IsAnnotationsVisible}" Value="True"><Setter Property="Tag" Value="True" /></DataTrigger></Style.Triggers>
+                        </Style></Button.Style>
                     </Button>
-                    <Button Width="62"
-                            Height="32"
-                            Margin="0,0,8,0"
-                            Padding="0"
-                            Command="{Binding SaveEditCommand}"
-                            Content="保存">
-                        <Button.Style>
-                            <Style BasedOn="{StaticResource HNova.PrimaryButton}" TargetType="Button">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsEditMode}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Width="76"
-                            Height="32"
-                            Margin="0,0,10,0"
-                            Padding="0"
-                            Content="{Binding ReaderThemeDisplay, StringFormat={}{0} ▾}"
-                            Click="OnReaderThemeMenuClick"
-                            Style="{StaticResource HNova.SecondaryButton}"
-                            ToolTip="切换阅读器主题">
-                        <Button.ContextMenu>
-                            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                <MenuItem Command="{Binding ApplyReaderThemeCommand}"
-                                          CommandParameter="{x:Static preferences:ReaderTheme.Light}"
-                                          Header="浅色" />
-                                <MenuItem Command="{Binding ApplyReaderThemeCommand}"
-                                          CommandParameter="{x:Static preferences:ReaderTheme.Dark}"
-                                          Header="深色" />
-                                <MenuItem Command="{Binding ApplyReaderThemeCommand}"
-                                          CommandParameter="{x:Static preferences:ReaderTheme.Sepia}"
-                                          Header="Sepia / 护眼" />
-                            </ContextMenu>
-                        </Button.ContextMenu>
-                    </Button>
-                    <Button Width="58"
-                            Height="32"
-                            Padding="0"
-                            Command="{Binding UseScrollLayoutCommand}"
-                            Content="Scroll"
-                            ToolTip="连续滚动阅读">
-                        <Button.Style>
-                            <Style BasedOn="{StaticResource HNova.ButtonBase}" TargetType="Button">
-                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ReadingLayoutMode}"
-                                                 Value="{x:Static reader:ReaderLayoutMode.Scroll}">
-                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                        <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Width="58"
-                            Height="32"
-                            Margin="4,0,12,0"
-                            Padding="0"
-                            Command="{Binding UsePagedLayoutCommand}"
-                            Content="Paged"
-                            ToolTip="分页阅读">
-                        <Button.Style>
-                            <Style BasedOn="{StaticResource HNova.ButtonBase}" TargetType="Button">
-                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ReadingLayoutMode}"
-                                                 Value="{x:Static reader:ReaderLayoutMode.Paged}">
-                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                        <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Command="{Binding DecreaseFontSizeCommand}"
-                            Content="A−"
-                            Style="{StaticResource HNova.IconButton}"
-                            ToolTip="减小字号" />
-                    <TextBlock Width="34"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextSecondaryBrush}"
-                               Text="{Binding ReaderFontSize, StringFormat={}{0:0}}"
-                               TextAlignment="Center" />
-                    <Button Command="{Binding IncreaseFontSizeCommand}"
-                            Content="A+"
-                            Style="{StaticResource HNova.IconButton}"
-                            ToolTip="增大字号" />
-                    <Button Margin="7,0,0,0"
-                            Command="{Binding ToggleAnnotationsCommand}"
-                            Content="✎"
-                            Style="{StaticResource HNova.IconButton}"
-                            ToolTip="显示或隐藏标注栏" />
-                    <Button Margin="7,0,0,0"
-                            Command="{Binding ToggleFocusModeCommand}"
-                            Content="◎"
-                            Style="{StaticResource HNova.IconButton}"
-                            ToolTip="专注模式" />
+                    <Button Margin="4,0,0,0" Command="{Binding ToggleFocusModeCommand}" Content="◎" Style="{StaticResource HNova.IconButton}" ToolTip="专注模式" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -300,8 +227,11 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Column="1">
+            <Grid Grid.Column="1" Margin="24,0">
                 <RichTextBox x:Name="ReaderBox"
+                             MaxWidth="{Binding ReaderMaximumContentWidth}"
+                             HorizontalAlignment="Stretch"
+                             SizeChanged="OnReaderSurfaceSizeChanged"
                              Padding="0"
                              Background="{DynamicResource AppBackgroundBrush}"
                              BorderThickness="0"
@@ -335,6 +265,7 @@
                 </RichTextBox>
 
                 <FlowDocumentPageViewer x:Name="PagedReader"
+                                        MaxWidth="{Binding ReaderMaximumContentWidth}"
                                         Background="{DynamicResource AppBackgroundBrush}"
                                         BorderThickness="0"
                                         ContextMenu="{StaticResource ReaderSelectionMenu}"
@@ -345,6 +276,15 @@
                                         SelectionBrush="{DynamicResource FocusBrush}"
                                         SizeChanged="OnPagedReaderSizeChanged"
                                         Zoom="100">
+                    <FlowDocumentPageViewer.Template>
+                        <ControlTemplate TargetType="FlowDocumentPageViewer">
+                            <Border Background="{TemplateBinding Background}">
+                                <AdornerDecorator>
+                                    <DocumentPageView />
+                                </AdornerDecorator>
+                            </Border>
+                        </ControlTemplate>
+                    </FlowDocumentPageViewer.Template>
                     <FlowDocumentPageViewer.Style>
                         <Style TargetType="FlowDocumentPageViewer">
                             <Setter Property="Visibility" Value="Collapsed" />

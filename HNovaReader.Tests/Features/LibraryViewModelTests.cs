@@ -7,6 +7,32 @@ namespace HNovaReader.Tests.Features;
 public sealed class LibraryViewModelTests
 {
     [Fact]
+    public async Task EditSeries_OnlyUpdatesMetadataWithoutMovingFiles()
+    {
+        var library = new StubLibraryService();
+        var book = TestBookFactory.Create(series: "旧标记");
+        library.Books.Add(book);
+        var org = new StubLibraryOrganizationService(library);
+        var interaction = new StubLibraryInteractionService
+        {
+            EditorResult = new BookEditorResult(new UpdateBookRequest
+            {
+                Title = book.Title,
+                SeriesName = "新标记",
+                Tags = ["测试标签"],
+            }, false, null),
+        };
+        using var model = LibraryViewModelTestFactory.Create(libraryService: library,
+            organizationService: org, interactionService: interaction);
+        await model.InitializeAsync(TestContext.Current.CancellationToken);
+        await model.Books[0].EditCommand.ExecuteAsync(null);
+        Assert.Null(org.LastMoveRequest);
+        Assert.Equal(book.FilePath, Assert.Single(library.Books).FilePath);
+        Assert.Equal("新标记", library.LastUpdateRequest!.SeriesName);
+        Assert.Equal(["测试标签"], library.LastUpdateRequest.Tags);
+    }
+
+    [Fact]
     public async Task Search_FiltersTitleAuthorSeriesAndTagsAfterDebounce()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -134,214 +160,71 @@ public sealed class LibraryViewModelTests
     }
 
     [Fact]
-    public async Task TreeSelectionFiltersAndCtrlSelectionMovesAllSelectedBooks()
+    public async Task NestedDirectorySelectionIncludesDescendantsAndCtrlMovePreservesSeries()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
         var library = new StubLibraryService();
-        var folderId = Guid.NewGuid();
-        var sourceSeriesId = Guid.NewGuid();
-        var targetSeriesId = Guid.NewGuid();
-        library.Books.AddRange(
-        [
-            TestBookFactory.Create(title: "第一本") with
-            {
-                FolderId = folderId,
-                FolderName = "小说",
-                SeriesId = sourceSeriesId,
-                SeriesName = "旧系列",
-            },
-            TestBookFactory.Create(title: "第二本") with
-            {
-                FolderId = folderId,
-                FolderName = "小说",
-                SeriesId = sourceSeriesId,
-                SeriesName = "旧系列",
-            },
-            TestBookFactory.Create(title: "未分类") with
-            {
-                FolderId = LibraryOrganizationDefaults.InboxFolderId,
-                FolderName = LibraryOrganizationDefaults.InboxFolderName,
-            },
-        ]);
-        var organization = new StubLibraryOrganizationService(library);
-        organization.Folders.Add(new LibraryFolderDetails(
-            folderId,
-            "小说",
-            1,
-            false,
-            LibraryOrganizationDefaults.UnsortedName,
-            0,
-            2,
-            [
-                new LibrarySeriesDetails(sourceSeriesId, folderId, "旧系列", 2),
-                new LibrarySeriesDetails(targetSeriesId, folderId, "新系列", 0),
-            ]));
-        using var viewModel = LibraryViewModelTestFactory.Create(
-            libraryService: library,
-            organizationService: organization);
-        await viewModel.InitializeAsync(cancellationToken);
-        var folder = Assert.Single(viewModel.LibraryTree, node => node.FolderId == folderId);
-        var source = Assert.Single(folder.Children, node => node.SeriesId == sourceSeriesId);
-        var target = Assert.Single(folder.Children, node => node.SeriesId == targetSeriesId);
-
-        viewModel.SelectLibraryNode(source);
-        Assert.Equal(["第一本", "第二本"], viewModel.Books.Select(book => book.Title));
-        viewModel.SelectBook(viewModel.Books[0], ctrlPressed: false, shiftPressed: false);
-        viewModel.SelectBook(viewModel.Books[1], ctrlPressed: true, shiftPressed: false);
-
-        await viewModel.MoveSelectedBooksAsync(target);
-
-        Assert.Equal(2, organization.LastMoveRequest?.BookIds.Count);
-        Assert.Equal(targetSeriesId, organization.LastMoveRequest?.SeriesId);
-        Assert.Equal(0, viewModel.SelectedBookCount);
-        Assert.All(library.Books.Take(2), book => Assert.Equal(targetSeriesId, book.SeriesId));
+        var org = new StubLibraryOrganizationService(library);
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var c = Guid.NewGuid();
+        org.Folders.Add(new(a, "A", 1, false, "", 0, 1, [], null, "A"));
+        org.Folders.Add(new(b, "B", 2, false, "", 0, 1, [], a, "A\\B"));
+        org.Folders.Add(new(c, "C", 3, false, "", 0, 1, [], b, "A\\B\\C"));
+        var series = Guid.NewGuid();
+        library.Books.Add(TestBookFactory.Create(title: "父目录") with { FolderId = a, SeriesId = series });
+        library.Books.Add(TestBookFactory.Create(title: "深层目录") with { FolderId = c, SeriesId = series });
+        using var model = LibraryViewModelTestFactory.Create(libraryService: library, organizationService: org);
+        await model.InitializeAsync(TestContext.Current.CancellationToken);
+        var parent = model.LibraryTree.Single(node => node.FolderId == a);
+        Assert.Equal(3, parent.Count);
+        Assert.Equal("C", parent.Children.Single().Children.Single().Name);
+        Assert.Empty(parent.Children.Single().Children.Single().Children);
+        model.SelectLibraryNode(parent);
+        Assert.Equal(2, model.Books.Count);
+        model.SelectBook(model.Books[0], false, false);
+        model.SelectBook(model.Books[1], true, false);
+        Assert.Equal(2, model.SelectedBookCount);
+        await model.MoveSelectedBooksAsync(model.LibraryTree.Single(node => node.FolderId == LibraryOrganizationDefaults.InboxFolderId));
+        Assert.Equal(2, org.LastMoveRequest!.BookIds.Count);
+        Assert.Null(org.LastMoveRequest.SeriesId);
+        Assert.All(library.Books, book => Assert.Equal(series, book.SeriesId));
     }
 
     [Fact]
-    public async Task RenameCommand_AllowsInboxAndSeriesNodes()
+    public async Task RenameCommand_RenamesRealFolderAndRootCannotRename()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
         var library = new StubLibraryService();
-        var organization = new StubLibraryOrganizationService(library);
-        var customFolder = await organization.CreateFolderAsync("小说", cancellationToken);
-        var series = await organization.CreateSeriesAsync(customFolder.Id, "旧系列", cancellationToken);
+        var org = new StubLibraryOrganizationService(library);
         var interaction = new StubLibraryInteractionService { PromptNameResult = "导入箱" };
-        using var viewModel = LibraryViewModelTestFactory.Create(
-            libraryService: library,
-            interactionService: interaction,
-            organizationService: organization);
-        await viewModel.InitializeAsync(cancellationToken);
-
-        var inbox = Assert.Single(
-            viewModel.LibraryTree,
-            node => node.FolderId == LibraryOrganizationDefaults.InboxFolderId);
-        viewModel.SelectLibraryNode(inbox);
-        await viewModel.RenameLibraryNodeCommand.ExecuteAsync(null);
-
-        Assert.Equal("导入箱", organization.Folders.Single(
-            folder => folder.Id == LibraryOrganizationDefaults.InboxFolderId).Name);
-        interaction.PromptNameResult = "新系列";
-        var seriesNode = Assert.Single(
-            viewModel.LibraryTree.SelectMany(folder => folder.Children),
-            node => node.SeriesId == series.Id);
-        viewModel.SelectLibraryNode(seriesNode);
-        await viewModel.RenameLibraryNodeCommand.ExecuteAsync(null);
-
-        Assert.Equal(
-            "新系列",
-            organization.Folders.Single(folder => folder.Id == customFolder.Id)
-                .Series.Single(item => item.Id == series.Id).Name);
-    }
-
-    [Fact]
-    public async Task RenameCommand_AllowsUnsortedNodeAndRefreshesItsName()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        var library = new StubLibraryService();
-        var organization = new StubLibraryOrganizationService(library);
-        var folder = await organization.CreateFolderAsync("散文", cancellationToken);
-        var interaction = new StubLibraryInteractionService { PromptNameResult = "单行本" };
-        using var viewModel = LibraryViewModelTestFactory.Create(
-            libraryService: library,
-            interactionService: interaction,
-            organizationService: organization);
-        await viewModel.InitializeAsync(cancellationToken);
-        var unsorted = Assert.Single(
-            Assert.Single(viewModel.LibraryTree, node => node.FolderId == folder.Id).Children,
-            node => node.Kind == LibraryTreeNodeKind.Unsorted);
-
-        viewModel.SelectLibraryNode(unsorted);
-        await viewModel.RenameLibraryNodeCommand.ExecuteAsync(null);
-
-        Assert.Equal("单行本", organization.Folders.Single(item => item.Id == folder.Id).UnsortedName);
-        Assert.Equal("单行本", viewModel.SelectedLibraryNode?.Name);
-        Assert.True(viewModel.SelectedLibraryNode?.CanRename);
-    }
-
-    [Fact]
-    public async Task DeleteSeriesCommand_PreservesBookAndSelectsUnsorted()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        var library = new StubLibraryService();
-        var organization = new StubLibraryOrganizationService(library);
-        var folder = await organization.CreateFolderAsync("小说", cancellationToken);
-        var series = await organization.CreateSeriesAsync(folder.Id, "旧系列", cancellationToken);
-        var book = TestBookFactory.Create(title: "第一卷") with
+        using var model = LibraryViewModelTestFactory.Create(libraryService: library, organizationService: org,
+            interactionService: interaction);
+        await model.InitializeAsync(TestContext.Current.CancellationToken);
+        model.SelectLibraryNode(model.LibraryTree.Single());
+        await model.RenameLibraryNodeCommand.ExecuteAsync(null);
+        Assert.Equal("导入箱", model.SelectedLibraryNode!.Name);
+        Assert.False(new LibraryTreeNodeViewModel
         {
-            FolderId = folder.Id,
-            FolderName = folder.Name,
-            SeriesId = series.Id,
-            SeriesName = series.Name,
-        };
-        library.Books.Add(book);
-        var interaction = new StubLibraryInteractionService { ConfirmResult = true };
-        using var viewModel = LibraryViewModelTestFactory.Create(
-            libraryService: library,
-            interactionService: interaction,
-            organizationService: organization);
-        await viewModel.InitializeAsync(cancellationToken);
-        var seriesNode = Assert.Single(
-            viewModel.LibraryTree.SelectMany(node => node.Children),
-            node => node.SeriesId == series.Id);
-
-        viewModel.SelectLibraryNode(seriesNode);
-        await viewModel.DeleteLibraryNodeCommand.ExecuteAsync(null);
-
-        Assert.Equal(series.Id, organization.LastDeletedSeriesId);
-        Assert.Null(Assert.Single(library.Books).SeriesId);
-        Assert.Equal(LibraryTreeNodeKind.Unsorted, viewModel.SelectedLibraryNode?.Kind);
-        Assert.Equal(folder.Id, viewModel.SelectedLibraryNode?.FolderId);
+            Kind = LibraryTreeNodeKind.Folder,
+            FolderId = LibraryOrganizationDefaults.RootFolderId,
+            Name = "根",
+            Count = 0,
+            IsSystem = true,
+        }.CanRename);
     }
 
     [Fact]
-    public async Task DeleteFolderCommand_PreservesBookAndSelectsInbox()
+    public async Task MoveFolder_UsesFolderIdentityAndParentTarget()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
         var library = new StubLibraryService();
-        var organization = new StubLibraryOrganizationService(library);
-        var folder = await organization.CreateFolderAsync("临时", cancellationToken);
-        library.Books.Add(TestBookFactory.Create(title: "草稿") with
-        {
-            FolderId = folder.Id,
-            FolderName = folder.Name,
-        });
-        var interaction = new StubLibraryInteractionService { ConfirmResult = true };
-        using var viewModel = LibraryViewModelTestFactory.Create(
-            libraryService: library,
-            interactionService: interaction,
-            organizationService: organization);
-        await viewModel.InitializeAsync(cancellationToken);
-        var folderNode = Assert.Single(viewModel.LibraryTree, node => node.FolderId == folder.Id);
-
-        viewModel.SelectLibraryNode(folderNode);
-        await viewModel.DeleteLibraryNodeCommand.ExecuteAsync(null);
-
-        Assert.Equal(folder.Id, organization.LastDeletedFolderId);
-        Assert.Equal(LibraryOrganizationDefaults.InboxFolderId, Assert.Single(library.Books).FolderId);
-        Assert.Equal(LibraryOrganizationDefaults.InboxFolderId, viewModel.SelectedLibraryNode?.FolderId);
-        Assert.Equal(LibraryTreeNodeKind.Folder, viewModel.SelectedLibraryNode?.Kind);
-    }
-
-    [Fact]
-    public async Task MoveSeries_UsesSeriesIdentityAndFolderTarget()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        var library = new StubLibraryService();
-        var organization = new StubLibraryOrganizationService(library);
-        var source = await organization.CreateFolderAsync("来源", cancellationToken);
-        var target = await organization.CreateFolderAsync("目标", cancellationToken);
-        var series = await organization.CreateSeriesAsync(source.Id, "系列", cancellationToken);
-        using var viewModel = LibraryViewModelTestFactory.Create(
-            libraryService: library,
-            organizationService: organization);
-        await viewModel.InitializeAsync(cancellationToken);
-        var targetNode = Assert.Single(viewModel.LibraryTree, node => node.FolderId == target.Id);
-
-        await viewModel.MoveSeriesAsync(series.Id, targetNode);
-
-        Assert.Equal((series.Id, target.Id), organization.LastSeriesMove);
-        Assert.Equal(series.Id, viewModel.SelectedLibraryNode?.SeriesId);
-        Assert.Equal(target.Id, viewModel.SelectedLibraryNode?.FolderId);
+        var org = new StubLibraryOrganizationService(library);
+        var folder = await org.CreateFolderAsync("子目录", TestContext.Current.CancellationToken);
+        using var model = LibraryViewModelTestFactory.Create(libraryService: library, organizationService: org);
+        await model.InitializeAsync(TestContext.Current.CancellationToken);
+        var target = model.LibraryTree.Single(node => node.FolderId == LibraryOrganizationDefaults.InboxFolderId);
+        await model.MoveFolderAsync(folder.Id, target);
+        Assert.Equal((folder.Id, target.FolderId), org.LastFolderMove);
+        Assert.Equal(folder.Id, model.SelectedLibraryNode!.FolderId);
+        Assert.Equal(folder.Id, model.LibraryTree.Single(node => node.FolderId == target.FolderId).Children.Single().FolderId);
     }
 
     [Fact]

@@ -10,6 +10,14 @@ public interface ILibraryOrganizationService
         string name,
         CancellationToken cancellationToken);
 
+    Task<LibraryFolderDetails> CreateFolderAsync(Guid parentId, string name, CancellationToken cancellationToken);
+
+    Task<LibraryFolderDetails> EnsureFolderPathAsync(string relativePath, CancellationToken cancellationToken);
+
+    Task MoveFolderAsync(Guid folderId, Guid targetParentId, CancellationToken cancellationToken);
+
+    Task PruneMissingFoldersAsync(CancellationToken cancellationToken);
+
     Task<LibrarySeriesDetails> CreateSeriesAsync(
         Guid folderId,
         string name,

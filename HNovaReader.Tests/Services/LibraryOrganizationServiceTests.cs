@@ -9,342 +9,256 @@ namespace HNovaReader.Tests.Services;
 public sealed class LibraryOrganizationServiceTests
 {
     [Fact]
-    public async Task MoveBooksAsync_BacksUpAndMovesManagedFileWithoutChangingIdentity()
+    public async Task MigrateRoot_PreservesDeepRelativePathsAndSeriesMarkers()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var sourceDirectory = Path.Combine(
-            root,
-            LibraryOrganizationDefaults.InboxFolderName,
-            LibraryOrganizationDefaults.UnsortedName);
-        Directory.CreateDirectory(sourceDirectory);
-        var sourcePath = Path.Combine(sourceDirectory, "银河.txt");
-        await File.WriteAllTextAsync(sourcePath, "test content", cancellationToken);
-
-        var appPaths = new AppPaths(Path.Combine(database.RootDirectory, "AppData"));
-        appPaths.EnsureDirectories();
-        var settings = new StubAppSettingsService();
-        settings.Set(new AppSettings { LibraryFolder = root });
-        var library = new LibraryService(
-            database.DbContextFactory,
-            new FilePathNormalizer(),
-            TimeProvider.System);
-        var organization = new LibraryOrganizationService(
-            database.DbContextFactory,
-            new FilePathNormalizer(),
-            settings,
-            appPaths,
-            new LibraryBackupService(TimeProvider.System));
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var book = await library.AddBookAsync(
-            new AddBookRequest
-            {
-                FilePath = sourcePath,
-                SourceFilePath = sourcePath,
-                StorageMode = BookStorageMode.ManagedCopy,
-                FolderId = LibraryOrganizationDefaults.InboxFolderId,
-                FileSize = new FileInfo(sourcePath).Length,
-                LastWriteTimeUtc = File.GetLastWriteTimeUtc(sourcePath),
-                FileEncoding = "utf-8",
-            },
-            cancellationToken);
-        var folder = await organization.CreateFolderAsync("科幻", cancellationToken);
-        var series = await organization.CreateSeriesAsync(folder.Id, "基地", cancellationToken);
-
-        var result = await organization.MoveBooksAsync(
-            new LibraryMoveRequest([book.Id], folder.Id, series.Id),
-            cancellationToken);
-
-        Assert.Equal(1, result.MovedCount);
-        Assert.Empty(result.Failures);
-        Assert.NotNull(result.BackupDirectory);
-        Assert.True(Directory.Exists(result.BackupDirectory));
-        Assert.True(File.Exists(Path.Combine(result.BackupDirectory!, "manifest.json")));
-        Assert.False(File.Exists(sourcePath));
-        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, cancellationToken));
-        Assert.Equal(book.Id, updated.Id);
-        Assert.Equal(folder.Id, updated.FolderId);
-        Assert.Equal(series.Id, updated.SeriesId);
-        Assert.Equal("科幻", updated.FolderName);
-        Assert.Equal("基地", updated.SeriesName);
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (library, org) = CreateServices(db, root);
+        var folder = await org.EnsureFolderPathAsync(Path.Combine("A", "B", "C", "D"), ct);
+        Directory.CreateDirectory(Path.Combine(root, folder.RelativePath));
+        var path = Path.Combine(root, folder.RelativePath, "书.txt");
+        await File.WriteAllTextAsync(path, "content", ct);
+        var series = await org.CreateSeriesAsync(folder.Id, "标记", ct);
+        var book = await AddManagedBookAsync(library, path, folder.Id, series.Id, ct);
+        var destination = Path.Combine(db.RootDirectory, "NewRoot");
+        await org.MigrateRootAsync(destination, ct);
+        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, ct));
+        Assert.Equal(Path.Combine(destination, folder.RelativePath, "书.txt"), updated.FilePath);
         Assert.True(File.Exists(updated.FilePath));
-        Assert.Equal(
-            Path.Combine(root, "科幻", "基地", "银河.txt"),
-            updated.FilePath,
-            ignoreCase: true);
-        Assert.StartsWith(
-            Path.Combine(root, LibraryBackupService.BackupDirectoryName),
-            result.BackupDirectory,
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(series.Id, updated.SeriesId);
+        Assert.Equal(folder.Id, updated.FolderId);
+        Assert.True(Directory.Exists(Path.Combine(destination, LibraryBackupService.BackupDirectoryName)));
     }
 
     [Fact]
-    public async Task MoveBooksAsync_RejectsOriginalLocationWithoutMovingOrBackingUp()
+    public async Task Rename_WhenBackupFails_LeavesDirectoryAndDatabaseUntouched()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var externalPath = Path.Combine(database.RootDirectory, "External.txt");
-        await File.WriteAllTextAsync(externalPath, "external", cancellationToken);
-        var appPaths = new AppPaths(Path.Combine(database.RootDirectory, "AppData"));
-        appPaths.EnsureDirectories();
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var paths = new AppPaths(Path.Combine(db.RootDirectory, "App"));
         var settings = new StubAppSettingsService();
         settings.Set(new AppSettings { LibraryFolder = root });
-        var library = new LibraryService(
-            database.DbContextFactory,
-            new FilePathNormalizer(),
-            TimeProvider.System);
-        var organization = new LibraryOrganizationService(
-            database.DbContextFactory,
-            new FilePathNormalizer(),
-            settings,
-            appPaths,
-            new LibraryBackupService(TimeProvider.System));
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var book = await library.AddBookAsync(
-            new AddBookRequest
-            {
-                FilePath = externalPath,
-                StorageMode = BookStorageMode.OriginalLocation,
-                FileSize = new FileInfo(externalPath).Length,
-                LastWriteTimeUtc = File.GetLastWriteTimeUtc(externalPath),
-                FileEncoding = "utf-8",
-            },
-            cancellationToken);
-        var folder = await organization.CreateFolderAsync("目标", cancellationToken);
+        var org = new LibraryOrganizationService(db.DbContextFactory, new FilePathNormalizer(),
+            settings, paths, new FailingBackup());
+        var folder = await org.CreateFolderAsync("原目录", ct);
+        var path = Path.Combine(root, "原目录", "未入库.txt");
+        await File.WriteAllTextAsync(path, "keep", ct);
+        await Assert.ThrowsAsync<IOException>(() => org.RenameFolderAsync(folder.Id, "新目录", ct));
+        Assert.True(File.Exists(path));
+        Assert.False(Directory.Exists(Path.Combine(root, "新目录")));
+        Assert.Equal("原目录", (await org.GetFoldersAsync(ct)).Single(item => item.Id == folder.Id).Name);
+    }
 
-        var result = await organization.MoveBooksAsync(
-            new LibraryMoveRequest([book.Id], folder.Id, null),
-            cancellationToken);
+    private sealed class FailingBackup : ILibraryBackupService
+    {
+        public Task<LibraryBackupResult> BackupAsync(string libraryRoot, string operationName,
+            IReadOnlyCollection<LibraryBackupItem> items, CancellationToken cancellationToken) =>
+            throw new IOException("备份失败");
+    }
 
-        Assert.Equal(0, result.MovedCount);
-        Assert.Single(result.Failures);
-        Assert.True(File.Exists(externalPath));
+    [Fact]
+    public async Task MoveBooks_PreservesSeriesAndIdentityAndBacksUp()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (library, org) = CreateServices(db, root);
+        var from = await org.EnsureFolderPathAsync("文学\\中文\\长篇\\原稿", ct);
+        var to = await org.EnsureFolderPathAsync("分类\\阅读\\收藏\\2026", ct);
+        Directory.CreateDirectory(Path.Combine(root, from.RelativePath));
+        var path = Path.Combine(root, from.RelativePath, "书.txt");
+        await File.WriteAllTextAsync(path, "content", ct);
+        var series = await org.CreateSeriesAsync(from.Id, "系列标记", ct);
+        var book = await AddManagedBookAsync(library, path, from.Id, series.Id, ct);
+        var result = await org.MoveBooksAsync(new([book.Id], to.Id, null), ct);
+        Assert.Equal(1, result.MovedCount);
+        Assert.Empty(result.Failures);
+        Assert.NotNull(result.BackupDirectory);
+        Assert.True(File.Exists(Path.Combine(result.BackupDirectory!, "manifest.json")));
+        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, ct));
+        Assert.Equal(book.Id, updated.Id);
+        Assert.Equal(series.Id, updated.SeriesId);
+        Assert.Equal(to.Id, updated.FolderId);
+        Assert.Equal(Path.Combine(root, to.RelativePath, "书.txt"), updated.FilePath);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task CreateFolders_AllowsSameNameUnderDifferentParentsAndTwentyLevels()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (_, org) = CreateServices(db, root);
+        var first = await org.CreateFolderAsync("第一类", ct);
+        var second = await org.CreateFolderAsync("第二类", ct);
+        var a = await org.CreateFolderAsync(first.Id, "同名", ct);
+        var b = await org.CreateFolderAsync(second.Id, "同名", ct);
+        Assert.NotEqual(a.Id, b.Id);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => org.CreateFolderAsync(first.Id, "同名", ct));
+        var parent = a;
+        for (var i = 0; i < 20; i++) parent = await org.CreateFolderAsync(parent.Id, "层" + i, ct);
+        Assert.True(Directory.Exists(Path.Combine(root, parent.RelativePath)));
+        var all = await org.GetFoldersAsync(ct);
+        Assert.Equal(20, all.Count(folder => folder.Name.StartsWith("层", StringComparison.Ordinal)));
+        Assert.Empty(a.Series);
+    }
+
+    [Fact]
+    public async Task RenameAndReparent_UpdatesWholeSubtreeAndUnregisteredFiles()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (library, org) = CreateServices(db, root);
+        var folder = await org.CreateFolderAsync("原目录", ct);
+        var child = await org.CreateFolderAsync(folder.Id, "子目录", ct);
+        var leaf = await org.CreateFolderAsync(child.Id, "更深", ct);
+        var path = Path.Combine(root, leaf.RelativePath, "正文.txt");
+        await File.WriteAllTextAsync(path, "content", ct);
+        var extra = Path.Combine(root, folder.RelativePath, "说明.md");
+        await File.WriteAllTextAsync(extra, "unregistered", ct);
+        var series = await org.CreateSeriesAsync(folder.Id, "标记", ct);
+        var book = await AddManagedBookAsync(library, path, leaf.Id, series.Id, ct);
+        await org.RenameFolderAsync(folder.Id, "已改名", ct);
+        var target = await org.CreateFolderAsync("目标", ct);
+        await org.MoveFolderAsync(folder.Id, target.Id, ct);
+        Assert.False(Directory.Exists(Path.Combine(root, "原目录")));
+        Assert.True(File.Exists(Path.Combine(root, "目标", "已改名", "说明.md")));
+        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, ct));
+        Assert.Equal(leaf.Id, updated.FolderId);
+        Assert.Equal(series.Id, updated.SeriesId);
+        Assert.Equal(Path.Combine(root, "目标", "已改名", "子目录", "更深", "正文.txt"), updated.FilePath);
+        Assert.Equal(updated.FilePath, updated.SourceFilePath);
+        var all = await org.GetFoldersAsync(ct);
+        Assert.Equal(Path.Combine("目标", "已改名", "子目录", "更深"), all.Single(item => item.Id == leaf.Id).RelativePath);
+        Assert.Equal(target.Id, all.Single(item => item.Id == folder.Id).ParentId);
+        Assert.True(Directory.EnumerateFiles(Path.Combine(root, LibraryBackupService.BackupDirectoryName),
+            "说明.md", SearchOption.AllDirectories).Any());
+    }
+
+    [Fact]
+    public async Task MoveFolder_RejectsCyclesAndCollisionsBeforeAnyMutation()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (_, org) = CreateServices(db, root);
+        var a = await org.CreateFolderAsync("A", ct);
+        var child = await org.CreateFolderAsync(a.Id, "B", ct);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => org.MoveFolderAsync(a.Id, child.Id, ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => org.MoveFolderAsync(a.Id, a.Id, ct));
+        var c = await org.CreateFolderAsync("C", ct);
+        await org.CreateFolderAsync(c.Id, "A", ct);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => org.MoveFolderAsync(a.Id, c.Id, ct));
+        Assert.True(Directory.Exists(Path.Combine(root, "A", "B")));
         Assert.False(Directory.Exists(Path.Combine(root, LibraryBackupService.BackupDirectoryName)));
     }
 
     [Fact]
-    public async Task RenameFolderAsync_AllowsInboxAndRenamesPhysicalDirectory()
+    public async Task Series_AreGlobalMetadataAndRenameDeleteNeverMoveFiles()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var (library, organization) = CreateServices(database, root);
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var oldDirectory = Path.Combine(
-            root,
-            LibraryOrganizationDefaults.InboxFolderName,
-            LibraryOrganizationDefaults.UnsortedName);
-        var sourcePath = Path.Combine(oldDirectory, "收件.txt");
-        await File.WriteAllTextAsync(sourcePath, "inbox", cancellationToken);
-        var book = await AddManagedBookAsync(
-            library,
-            sourcePath,
-            LibraryOrganizationDefaults.InboxFolderId,
-            seriesId: null,
-            cancellationToken);
-
-        await organization.RenameFolderAsync(
-            LibraryOrganizationDefaults.InboxFolderId,
-            "导入箱",
-            cancellationToken);
-
-        var expectedPath = Path.Combine(root, "导入箱", LibraryOrganizationDefaults.UnsortedName, "收件.txt");
-        Assert.False(Directory.Exists(Path.Combine(root, LibraryOrganizationDefaults.InboxFolderName)));
-        Assert.True(File.Exists(expectedPath));
-        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, cancellationToken));
-        Assert.Equal("导入箱", updated.FolderName);
-        Assert.Equal(expectedPath, updated.FilePath, ignoreCase: true);
-        Assert.True(Directory.EnumerateDirectories(
-            Path.Combine(root, LibraryBackupService.BackupDirectoryName)).Any());
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (library, org) = CreateServices(db, root);
+        var a = await org.CreateFolderAsync("A", ct);
+        var b = await org.CreateFolderAsync("B", ct);
+        var series = await org.CreateSeriesAsync(a.Id, "同一个系列", ct);
+        Assert.Equal(series.Id, (await org.CreateSeriesAsync(b.Id, "同一个系列", ct)).Id);
+        var path = Path.Combine(root, "A", "书.txt");
+        await File.WriteAllTextAsync(path, "content", ct);
+        var book = await AddManagedBookAsync(library, path, a.Id, series.Id, ct);
+        await org.RenameSeriesAsync(series.Id, "新版标记 / 非目录", ct);
+        var changed = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, ct));
+        Assert.Equal(path, changed.FilePath);
+        Assert.Equal("新版标记 / 非目录", changed.SeriesName);
+        await org.DeleteSeriesAsync(series.Id, ct);
+        var cleared = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, ct));
+        Assert.Null(cleared.SeriesId);
+        Assert.Equal(path, cleared.FilePath);
+        Assert.True(File.Exists(path));
+        Assert.False(Directory.Exists(Path.Combine(root, "A", "同一个系列")));
     }
 
     [Fact]
-    public async Task RenameSeriesAsync_RenamesPhysicalDirectoryAndBookPath()
+    public async Task DeleteFolder_MovesDescendantBooksToInboxWithoutClearingMarkers()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var (library, organization) = CreateServices(database, root);
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var folder = await organization.CreateFolderAsync("小说", cancellationToken);
-        var series = await organization.CreateSeriesAsync(folder.Id, "旧系列", cancellationToken);
-        var oldDirectory = Path.Combine(root, folder.Name, series.Name);
-        var sourcePath = Path.Combine(oldDirectory, "第一卷.txt");
-        await File.WriteAllTextAsync(sourcePath, "volume", cancellationToken);
-        var book = await AddManagedBookAsync(
-            library,
-            sourcePath,
-            folder.Id,
-            series.Id,
-            cancellationToken);
-
-        await organization.RenameSeriesAsync(series.Id, "新系列", cancellationToken);
-
-        var expectedPath = Path.Combine(root, folder.Name, "新系列", "第一卷.txt");
-        Assert.False(Directory.Exists(oldDirectory));
-        Assert.True(File.Exists(expectedPath));
-        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, cancellationToken));
-        Assert.Equal("新系列", updated.SeriesName);
-        Assert.Equal(expectedPath, updated.FilePath, ignoreCase: true);
-    }
-
-    [Fact]
-    public async Task MoveSeriesAsync_MovesDirectoryAndUpdatesSeriesAndBooks()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var (library, organization) = CreateServices(database, root);
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var sourceFolder = await organization.CreateFolderAsync("来源", cancellationToken);
-        var targetFolder = await organization.CreateFolderAsync("目标", cancellationToken);
-        var series = await organization.CreateSeriesAsync(sourceFolder.Id, "三部曲", cancellationToken);
-        var oldDirectory = Path.Combine(root, sourceFolder.Name, series.Name);
-        var sourcePath = Path.Combine(oldDirectory, "上.txt");
-        await File.WriteAllTextAsync(sourcePath, "part one", cancellationToken);
-        var book = await AddManagedBookAsync(
-            library,
-            sourcePath,
-            sourceFolder.Id,
-            series.Id,
-            cancellationToken);
-
-        var moved = await organization.MoveSeriesAsync(
-            series.Id,
-            targetFolder.Id,
-            cancellationToken);
-
-        var expectedPath = Path.Combine(root, targetFolder.Name, series.Name, "上.txt");
-        Assert.Equal(series.Id, moved.Id);
-        Assert.Equal(targetFolder.Id, moved.FolderId);
-        Assert.False(Directory.Exists(oldDirectory));
-        Assert.True(File.Exists(expectedPath));
-        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, cancellationToken));
-        Assert.Equal(targetFolder.Id, updated.FolderId);
-        Assert.Equal(series.Id, updated.SeriesId);
-        Assert.Equal(expectedPath, updated.FilePath, ignoreCase: true);
-    }
-
-    [Fact]
-    public async Task RenameEmptySeriesAndFolder_ReplacesPhysicalDirectories()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var (_, organization) = CreateServices(database, root);
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var folder = await organization.CreateFolderAsync("旧文件夹", cancellationToken);
-        var series = await organization.CreateSeriesAsync(folder.Id, "旧系列", cancellationToken);
-
-        await organization.RenameSeriesAsync(series.Id, "新系列", cancellationToken);
-        await organization.RenameFolderAsync(folder.Id, "新文件夹", cancellationToken);
-
-        Assert.False(Directory.Exists(Path.Combine(root, "旧文件夹")));
-        Assert.False(Directory.Exists(Path.Combine(root, "新文件夹", "旧系列")));
-        Assert.True(Directory.Exists(Path.Combine(root, "新文件夹", "新系列")));
-        Assert.True(Directory.Exists(Path.Combine(
-            root,
-            "新文件夹",
-            LibraryOrganizationDefaults.UnsortedName)));
-        Assert.Equal(
-            2,
-            Directory.EnumerateDirectories(
-                Path.Combine(root, LibraryBackupService.BackupDirectoryName)).Count());
-    }
-
-    [Fact]
-    public async Task RenameUnsortedAsync_RenamesPhysicalDirectoryAndKeepsBooksUnassigned()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var (library, organization) = CreateServices(database, root);
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var folder = await organization.CreateFolderAsync("散文", cancellationToken);
-        var oldDirectory = Path.Combine(root, folder.Name, folder.UnsortedName);
-        var sourcePath = Path.Combine(oldDirectory, "随笔.txt");
-        await File.WriteAllTextAsync(sourcePath, "essay", cancellationToken);
-        var book = await AddManagedBookAsync(library, sourcePath, folder.Id, null, cancellationToken);
-
-        await organization.RenameUnsortedAsync(folder.Id, "单行本", cancellationToken);
-
-        var expectedPath = Path.Combine(root, folder.Name, "单行本", "随笔.txt");
-        Assert.False(Directory.Exists(oldDirectory));
-        Assert.True(File.Exists(expectedPath));
-        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, cancellationToken));
-        Assert.Null(updated.SeriesId);
-        Assert.Equal(expectedPath, updated.FilePath, ignoreCase: true);
-        var updatedFolder = Assert.Single(await organization.GetFoldersAsync(cancellationToken), item => item.Id == folder.Id);
-        Assert.Equal("单行本", updatedFolder.UnsortedName);
-    }
-
-    [Fact]
-    public async Task DeleteSeriesAsync_MovesBooksToFolderUnsortedAndDeletesOnlySeries()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var (library, organization) = CreateServices(database, root);
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var folder = await organization.CreateFolderAsync("小说", cancellationToken);
-        await organization.RenameUnsortedAsync(folder.Id, "散本", cancellationToken);
-        var series = await organization.CreateSeriesAsync(folder.Id, "三部曲", cancellationToken);
-        var oldDirectory = Path.Combine(root, folder.Name, series.Name);
-        var sourcePath = Path.Combine(oldDirectory, "上.txt");
-        await File.WriteAllTextAsync(sourcePath, "part", cancellationToken);
-        var book = await AddManagedBookAsync(library, sourcePath, folder.Id, series.Id, cancellationToken);
-
-        await organization.DeleteSeriesAsync(series.Id, cancellationToken);
-
-        var expectedPath = Path.Combine(root, folder.Name, "散本", "上.txt");
-        Assert.False(Directory.Exists(oldDirectory));
-        Assert.True(File.Exists(expectedPath));
-        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, cancellationToken));
-        Assert.Equal(folder.Id, updated.FolderId);
-        Assert.Null(updated.SeriesId);
-        Assert.Equal(expectedPath, updated.FilePath, ignoreCase: true);
-        var updatedFolder = Assert.Single(await organization.GetFoldersAsync(cancellationToken), item => item.Id == folder.Id);
-        Assert.DoesNotContain(updatedFolder.Series, item => item.Id == series.Id);
-        Assert.True(Directory.EnumerateDirectories(
-            Path.Combine(root, LibraryBackupService.BackupDirectoryName)).Any());
-    }
-
-    [Fact]
-    public async Task DeleteFolderAsync_MovesBooksToInboxAndRejectsDeletingInbox()
-    {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        await using var database = await SqliteTestDatabase.CreateAsync(cancellationToken);
-        var root = Path.Combine(database.RootDirectory, "Managed");
-        var (library, organization) = CreateServices(database, root);
-        await organization.EnsureDefaultsAsync(cancellationToken);
-        var folder = await organization.CreateFolderAsync("临时", cancellationToken);
-        var series = await organization.CreateSeriesAsync(folder.Id, "待整理", cancellationToken);
-        var oldDirectory = Path.Combine(root, folder.Name);
-        var sourcePath = Path.Combine(oldDirectory, series.Name, "草稿.txt");
-        await File.WriteAllTextAsync(sourcePath, "draft", cancellationToken);
-        var book = await AddManagedBookAsync(library, sourcePath, folder.Id, series.Id, cancellationToken);
-
-        await organization.DeleteFolderAsync(folder.Id, cancellationToken);
-
-        var expectedPath = Path.Combine(
-            root,
-            LibraryOrganizationDefaults.InboxFolderName,
-            LibraryOrganizationDefaults.UnsortedName,
-            "草稿.txt");
-        Assert.False(Directory.Exists(oldDirectory));
-        Assert.True(File.Exists(expectedPath));
-        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, cancellationToken));
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (library, org) = CreateServices(db, root);
+        var folder = await org.CreateFolderAsync("待删除", ct);
+        var child = await org.CreateFolderAsync(folder.Id, "子目录", ct);
+        var series = await org.CreateSeriesAsync(child.Id, "保留标记", ct);
+        var path = Path.Combine(root, child.RelativePath, "书.txt");
+        await File.WriteAllTextAsync(path, "content", ct);
+        var book = await AddManagedBookAsync(library, path, child.Id, series.Id, ct);
+        await org.DeleteFolderAsync(folder.Id, ct);
+        var updated = Assert.IsType<BookDetails>(await library.GetBookAsync(book.Id, ct));
         Assert.Equal(LibraryOrganizationDefaults.InboxFolderId, updated.FolderId);
-        Assert.Null(updated.SeriesId);
-        Assert.Equal(expectedPath, updated.FilePath, ignoreCase: true);
-        Assert.DoesNotContain(await organization.GetFoldersAsync(cancellationToken), item => item.Id == folder.Id);
-        Assert.True(Directory.EnumerateDirectories(
-            Path.Combine(root, LibraryBackupService.BackupDirectoryName)).Any());
-        await Assert.ThrowsAsync<InvalidOperationException>(() => organization.DeleteFolderAsync(
-            LibraryOrganizationDefaults.InboxFolderId,
-            cancellationToken));
+        Assert.Equal(series.Id, updated.SeriesId);
+        Assert.True(File.Exists(updated.FilePath));
+        Assert.False(Directory.Exists(Path.Combine(root, folder.RelativePath)));
+        Assert.DoesNotContain(await org.GetFoldersAsync(ct), item => item.Id == child.Id || item.Id == folder.Id);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => org.DeleteFolderAsync(LibraryOrganizationDefaults.RootFolderId, ct));
+    }
+
+    [Fact]
+    public async Task DeleteFolder_RefusesUnregisteredFilesWithoutLosingData()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (_, org) = CreateServices(db, root);
+        var folder = await org.CreateFolderAsync("含其他文件", ct);
+        var path = Path.Combine(root, folder.RelativePath, "说明.md");
+        await File.WriteAllTextAsync(path, "keep", ct);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => org.DeleteFolderAsync(folder.Id, ct));
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task MoveBooks_RejectsExternalAndMissingRecords()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (library, org) = CreateServices(db, root);
+        await org.EnsureDefaultsAsync(ct);
+        var path = Path.Combine(db.RootDirectory, "外部.txt");
+        await File.WriteAllTextAsync(path, "external", ct);
+        var book = await library.AddBookAsync(new AddBookRequest
+        {
+            FilePath = path,
+            StorageMode = BookStorageMode.OriginalLocation,
+            FileSize = 8,
+            LastWriteTimeUtc = File.GetLastWriteTimeUtc(path),
+            FileEncoding = "utf-8",
+        }, ct);
+        var result = await org.MoveBooksAsync(new([book.Id, Guid.NewGuid()], LibraryOrganizationDefaults.InboxFolderId, null), ct);
+        Assert.Equal(0, result.MovedCount);
+        Assert.Equal(2, result.Failures.Count);
+        Assert.True(File.Exists(path));
+        Assert.Null(result.BackupDirectory);
+    }
+
+    [Fact]
+    public async Task RenameInboxAndEmptyFolders_RenamesPhysicalDirectories()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await SqliteTestDatabase.CreateAsync(ct);
+        var root = Path.Combine(db.RootDirectory, "Managed");
+        var (_, org) = CreateServices(db, root);
+        await org.EnsureDefaultsAsync(ct);
+        await org.RenameFolderAsync(LibraryOrganizationDefaults.InboxFolderId, "导入箱", ct);
+        Assert.True(Directory.Exists(Path.Combine(root, "导入箱")));
+        Assert.False(Directory.Exists(Path.Combine(root, LibraryOrganizationDefaults.InboxFolderName)));
+        var folder = await org.CreateFolderAsync("空目录", ct);
+        await org.RenameFolderAsync(folder.Id, "新空目录", ct);
+        Assert.True(Directory.Exists(Path.Combine(root, "新空目录")));
     }
 
     private static (LibraryService Library, LibraryOrganizationService Organization) CreateServices(

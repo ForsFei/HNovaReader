@@ -165,6 +165,7 @@ public sealed class JsonAppSettingsService(
                 ? settings.ReadingMode
                 : defaults.ReadingMode,
             LibraryFolder = libraryFolder,
+            LibraryUpdateIntervalMinutes = Math.Clamp(settings.LibraryUpdateIntervalMinutes, 1, 1440),
             ImportBehavior = Enum.IsDefined(settings.ImportBehavior)
                 ? settings.ImportBehavior
                 : defaults.ImportBehavior,

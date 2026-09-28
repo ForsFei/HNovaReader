@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HNovaReader.Data.Entities;
 using HNovaReader.Features.Shared;
 using HNovaReader.Services.Import;
 using HNovaReader.Services.Library;
+using HNovaReader.Services.Settings;
 
 namespace HNovaReader.Features.Library;
 
@@ -25,13 +27,20 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
     private Task _pendingSearch = Task.CompletedTask;
     private readonly HashSet<Guid> _selectedBookIds = [];
     private Guid? _selectionAnchorId;
+    private readonly ILibrarySyncService? _syncService;
+    private readonly IAppSettingsService? _settingsService;
+    private DispatcherTimer? _updateTimer;
+    private bool _isUpdating;
+    private bool _isDisposed;
 
     public LibraryViewModel(
         ILibraryService libraryService,
         ITextEncodingDetector encodingDetector,
         ICoverFileStore coverFileStore,
         ILibraryInteractionService interactionService,
-        ILibraryOrganizationService organizationService)
+        ILibraryOrganizationService organizationService,
+        ILibrarySyncService? syncService = null,
+        IAppSettingsService? settingsService = null)
         : base("我的书库", "管理和阅读保存在本机的 TXT 电子书")
     {
         _libraryService = libraryService;
@@ -39,6 +48,8 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
         _coverFileStore = coverFileStore;
         _interactionService = interactionService;
         _organizationService = organizationService;
+        _syncService = syncService;
+        _settingsService = settingsService;
         statusMessage = "正在载入书库…";
     }
 
@@ -124,12 +135,12 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
         LibrarySection.Unread => "尚未开始阅读的书籍",
         LibrarySection.Finished => "阅读进度达到 95% 的书籍",
         LibrarySection.Favorites => "快速找到收藏的书籍",
-        LibrarySection.Series => ActiveGroupName is null ? "按系列组织书籍" : "按系列序号排列",
+        LibrarySection.Series => ActiveGroupName is null ? "按系列标记筛选书籍，不影响文件位置" : "按系列序号排列",
         LibrarySection.Tags => ActiveGroupName is null ? "按标签组织书籍" : "该标签下的书籍",
         _ => SelectedLibraryNode is null
             ? "管理和阅读保存在本机的 TXT 电子书"
             : SelectedLibraryNode.Kind == LibraryTreeNodeKind.Folder
-                ? "该文件夹中的全部书籍"
+                ? "该文件夹及所有子目录中的书籍"
                 : "书籍位置与磁盘目录保持同步",
     };
 
@@ -146,9 +157,49 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
         ? "将 TXT 文件或文件夹拖入窗口，或使用右上角导入按钮。"
         : "没有匹配当前搜索条件的书籍。";
 
-    public Task InitializeAsync(CancellationToken cancellationToken)
+    public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        return ReloadAsync(cancellationToken);
+        await ReloadAsync(cancellationToken);
+        if (_syncService is not null && _settingsService is not null && _updateTimer is null)
+        {
+            _updateTimer = new DispatcherTimer(DispatcherPriority.Background);
+            _updateTimer.Tick += OnUpdateTimerTick;
+            _settingsService.SettingsChanged += OnUpdateSettingsChanged;
+            ConfigureUpdateTimer();
+            if (_settingsService.Current.AutoUpdateLibrary)
+            {
+                await RefreshAsync();
+            }
+        }
+    }
+
+    private void ConfigureUpdateTimer()
+    {
+        if (_isDisposed || _updateTimer is null || _settingsService is null)
+        {
+            return;
+        }
+
+        _updateTimer.Stop();
+        _updateTimer.Interval = TimeSpan.FromMinutes(
+            Math.Clamp(_settingsService.Current.LibraryUpdateIntervalMinutes, 1, 1440));
+        if (_settingsService.Current.AutoUpdateLibrary)
+        {
+            _updateTimer.Start();
+        }
+    }
+
+    private void OnUpdateSettingsChanged(object? sender, EventArgs args)
+    {
+        if (_updateTimer is not null)
+        {
+            _updateTimer.Dispatcher.InvokeAsync(ConfigureUpdateTimer);
+        }
+    }
+
+    private async void OnUpdateTimerTick(object? sender, EventArgs args)
+    {
+        await RefreshAsync();
     }
 
     public void SetSection(LibrarySection section)
@@ -212,9 +263,38 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
     }
 
     [RelayCommand]
-    private Task RefreshAsync()
+    private async Task RefreshAsync()
     {
-        return ReloadAsync(_lifetimeCancellationSource.Token);
+        if (_isDisposed || IsBusy || _isUpdating)
+        {
+            return;
+        }
+
+        _isUpdating = true;
+        IsBusy = true;
+        StatusMessage = "正在扫描本地书库…";
+        try
+        {
+            var result = _syncService is null ? null
+                : await _syncService.SyncAsync(_lifetimeCancellationSource.Token);
+            await ReloadAsync(_lifetimeCancellationSource.Token);
+            if (result is not null)
+            {
+                StatusMessage = result.Summary;
+            }
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellationSource.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            StatusMessage = $"书库更新失败：{exception.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+            _isUpdating = false;
+        }
     }
 
     [RelayCommand]
@@ -228,37 +308,15 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
 
         await RunOperationAsync(async cancellationToken =>
         {
-            var created = await _organizationService.CreateFolderAsync(name, cancellationToken);
+            var created = await _organizationService.CreateFolderAsync(
+                SelectedLibraryNode?.FolderId ?? LibraryOrganizationDefaults.RootFolderId, name, cancellationToken);
             await ReloadAsync(cancellationToken);
             SelectLibraryNode(FindTreeNode(created.Id, null, LibraryTreeNodeKind.Folder));
             StatusMessage = $"已创建文件夹：{created.Name}";
         });
     }
 
-    [RelayCommand]
-    private async Task CreateSeriesAsync()
-    {
-        var folderId = SelectedLibraryNode?.FolderId;
-        if (folderId is null)
-        {
-            _interactionService.ShowMessage("选择文件夹", "请先在左侧选择要创建系列的文件夹。", isError: true);
-            return;
-        }
 
-        var name = _interactionService.PromptForName("新建系列", "系列名称");
-        if (name is null)
-        {
-            return;
-        }
-
-        await RunOperationAsync(async cancellationToken =>
-        {
-            var created = await _organizationService.CreateSeriesAsync(folderId.Value, name, cancellationToken);
-            await ReloadAsync(cancellationToken);
-            SelectLibraryNode(FindTreeNode(created.FolderId, created.Id, LibraryTreeNodeKind.Series));
-            StatusMessage = $"已创建系列：{created.Name}";
-        });
-    }
 
     [RelayCommand]
     private async Task RenameLibraryNodeAsync()
@@ -270,12 +328,7 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
         }
 
         var name = _interactionService.PromptForName(
-            node.Kind switch
-            {
-                LibraryTreeNodeKind.Folder => "重命名文件夹",
-                LibraryTreeNodeKind.Unsorted => "重命名未分系列",
-                _ => "重命名系列",
-            },
+            "重命名文件夹",
             "新名称",
             node.Name);
         if (name is null || string.Equals(name, node.Name, StringComparison.CurrentCulture))
@@ -285,18 +338,7 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
 
         await RunOperationAsync(async cancellationToken =>
         {
-            if (node.Kind == LibraryTreeNodeKind.Folder)
-            {
-                await _organizationService.RenameFolderAsync(node.FolderId, name, cancellationToken);
-            }
-            else if (node.Kind == LibraryTreeNodeKind.Unsorted)
-            {
-                await _organizationService.RenameUnsortedAsync(node.FolderId, name, cancellationToken);
-            }
-            else if (node.SeriesId is { } seriesId)
-            {
-                await _organizationService.RenameSeriesAsync(seriesId, name, cancellationToken);
-            }
+            await _organizationService.RenameFolderAsync(node.FolderId, name, cancellationToken);
 
             var target = (node.FolderId, node.SeriesId, node.Kind);
             await ReloadAsync(cancellationToken);
@@ -314,10 +356,7 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
             return;
         }
 
-        var folderNode = LibraryTree.First(item => item.FolderId == node.FolderId);
-        var message = node.Kind == LibraryTreeNodeKind.Series
-            ? $"确定删除系列“{node.Name}”吗？书籍和 TXT 文件不会删除，将先备份并移至“{folderNode.Children.First(item => item.Kind == LibraryTreeNodeKind.Unsorted).Name}”。"
-            : $"确定删除文件夹“{node.Name}”吗？其中的书籍和 TXT 文件不会删除，将先备份并移至系统收件箱。";
+        var message = $"确定删除文件夹“{node.Name}”及其子目录吗？已入库的书籍将先备份并移到收件箱，系列、标签和阅读记录保持不变。";
         if (!_interactionService.Confirm("确认删除", message, isDangerous: true))
         {
             return;
@@ -325,23 +364,10 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
 
         await RunOperationAsync(async cancellationToken =>
         {
-            if (node.Kind == LibraryTreeNodeKind.Series && node.SeriesId is { } seriesId)
-            {
-                await _organizationService.DeleteSeriesAsync(seriesId, cancellationToken);
-                await ReloadAsync(cancellationToken);
-                SelectLibraryNode(FindTreeNode(node.FolderId, null, LibraryTreeNodeKind.Unsorted));
-                StatusMessage = $"已删除系列“{node.Name}”，书籍已移至未分系列";
-            }
-            else
-            {
-                await _organizationService.DeleteFolderAsync(node.FolderId, cancellationToken);
-                await ReloadAsync(cancellationToken);
-                SelectLibraryNode(FindTreeNode(
-                    LibraryOrganizationDefaults.InboxFolderId,
-                    null,
-                    LibraryTreeNodeKind.Folder));
-                StatusMessage = $"已删除文件夹“{node.Name}”，书籍已移至收件箱";
-            }
+            await _organizationService.DeleteFolderAsync(node.FolderId, cancellationToken);
+            await ReloadAsync(cancellationToken);
+            SelectLibraryNode(FindTreeNode(LibraryOrganizationDefaults.InboxFolderId, null, LibraryTreeNodeKind.Folder));
+            StatusMessage = $"已删除文件夹“{node.Name}”，书籍已移至收件箱";
         });
     }
 
@@ -373,13 +399,13 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
                 new LibraryMoveRequest(
                     ids,
                     target.FolderId,
-                    target.Kind == LibraryTreeNodeKind.Series ? target.SeriesId : null),
+                    null),
                 cancellationToken);
             ClearSelection();
             await ReloadAsync(cancellationToken);
             SelectLibraryNode(FindTreeNode(
                 target.FolderId,
-                target.Kind == LibraryTreeNodeKind.Series ? target.SeriesId : null,
+                null,
                 target.Kind));
 
             StatusMessage = result.Failures.Count == 0
@@ -395,25 +421,14 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
         });
     }
 
-    public async Task MoveSeriesAsync(Guid seriesId, LibraryTreeNodeViewModel target)
+    public async Task MoveFolderAsync(Guid folderId, LibraryTreeNodeViewModel target)
     {
-        if (target.Kind != LibraryTreeNodeKind.Folder)
-        {
-            return;
-        }
-
         await RunOperationAsync(async cancellationToken =>
         {
-            var moved = await _organizationService.MoveSeriesAsync(
-                seriesId,
-                target.FolderId,
-                cancellationToken);
+            await _organizationService.MoveFolderAsync(folderId, target.FolderId, cancellationToken);
             await ReloadAsync(cancellationToken);
-            SelectLibraryNode(FindTreeNode(
-                moved.FolderId,
-                moved.Id,
-                LibraryTreeNodeKind.Series));
-            StatusMessage = $"已将系列“{moved.Name}”移动到“{target.Name}”";
+            SelectLibraryNode(FindTreeNode(folderId, null, LibraryTreeNodeKind.Folder));
+            StatusMessage = $"已将文件夹移动到“{target.Name}”";
         });
     }
 
@@ -507,7 +522,6 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
     internal async Task EditBookAsync(LibraryBookItemViewModel item)
     {
         string? copiedCoverPath = null;
-        var seriesMoved = false;
         try
         {
             var result = _interactionService.EditBook(item.Details);
@@ -515,48 +529,6 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
             {
                 return;
             }
-
-            var desiredSeriesName = string.IsNullOrWhiteSpace(result.Update.SeriesName)
-                ? null
-                : result.Update.SeriesName.Trim();
-            if (!string.Equals(
-                    desiredSeriesName,
-                    item.Details.SeriesName,
-                    StringComparison.CurrentCultureIgnoreCase))
-            {
-                var folderId = item.Details.FolderId ?? LibraryOrganizationDefaults.InboxFolderId;
-                var folders = await _organizationService.GetFoldersAsync(_lifetimeCancellationSource.Token);
-                var folder = folders.Single(candidate => candidate.Id == folderId);
-                Guid? targetSeriesId = null;
-                if (desiredSeriesName is not null)
-                {
-                    var targetSeries = folder.Series.FirstOrDefault(series => string.Equals(
-                        series.Name,
-                        desiredSeriesName,
-                        StringComparison.CurrentCultureIgnoreCase));
-                    targetSeriesId = targetSeries?.Id
-                        ?? (await _organizationService.CreateSeriesAsync(
-                            folderId,
-                            desiredSeriesName,
-                            _lifetimeCancellationSource.Token)).Id;
-                }
-
-                var moveResult = await _organizationService.MoveBooksAsync(
-                    new LibraryMoveRequest(
-                        [item.Id],
-                        folderId,
-                        targetSeriesId,
-                        "编辑书籍系列"),
-                    _lifetimeCancellationSource.Token);
-                if (moveResult.Failures.Count > 0 || moveResult.MovedCount != 1)
-                {
-                    throw new InvalidOperationException(
-                        moveResult.Failures.FirstOrDefault()?.Message ?? "无法移动书籍到目标系列。");
-                }
-
-                seriesMoved = true;
-            }
-
             var targetCoverPath = item.Details.CoverPath;
             if (result.IsCoverChanged)
             {
@@ -580,23 +552,6 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
         }
         catch (Exception exception)
         {
-            if (seriesMoved)
-            {
-                try
-                {
-                    await _organizationService.MoveBooksAsync(
-                        new LibraryMoveRequest(
-                            [item.Id],
-                            item.Details.FolderId ?? LibraryOrganizationDefaults.InboxFolderId,
-                            item.Details.SeriesId,
-                            "回退书籍系列修改"),
-                        CancellationToken.None);
-                }
-                catch
-                {
-                }
-            }
-
             if (!string.IsNullOrWhiteSpace(copiedCoverPath))
             {
                 _coverFileStore.DeleteManagedCopy(copiedCoverPath);
@@ -767,6 +722,20 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed)
+        {
+            return;
+        }
+        _isDisposed = true;
+        if (_updateTimer is not null)
+        {
+            _updateTimer.Stop();
+            _updateTimer.Tick -= OnUpdateTimerTick;
+        }
+        if (_settingsService is not null)
+        {
+            _settingsService.SettingsChanged -= OnUpdateSettingsChanged;
+        }
         _lifetimeCancellationSource.Cancel();
         _searchCancellationSource?.Cancel();
         _searchCancellationSource?.Dispose();
@@ -832,14 +801,9 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
 
         if (SelectedLibraryNode is { } node && Section == LibrarySection.All)
         {
-            searched = searched.Where(book => node.Kind switch
-            {
-                LibraryTreeNodeKind.Folder => book.Details.FolderId == node.FolderId,
-                LibraryTreeNodeKind.Series => book.Details.SeriesId == node.SeriesId,
-                LibraryTreeNodeKind.Unsorted => book.Details.FolderId == node.FolderId
-                    && book.Details.SeriesId is null,
-                _ => true,
-            }).ToArray();
+            var folderIds = FlattenNodes([node]).Select(item => item.FolderId).ToHashSet();
+            searched = searched.Where(book => book.Details.FolderId is { } folderId
+                && folderIds.Contains(folderId)).ToArray();
         }
 
         ContinueReadingBook = _allBooks
@@ -895,68 +859,57 @@ public sealed partial class LibraryViewModel : PageViewModel, IDisposable
         IReadOnlyList<LibraryFolderDetails> folders,
         (Guid FolderId, Guid? SeriesId, LibraryTreeNodeKind Kind)? selectedTarget)
     {
+        var expanded = FlattenNodes(LibraryTree).ToDictionary(node => node.FolderId, node => node.IsExpanded);
+        var byId = folders.ToDictionary(folder => folder.Id);
+        var counts = folders.ToDictionary(folder => folder.Id, folder => folder.BookCount);
+        foreach (var folder in folders)
+        {
+            var parent = folder.ParentId;
+            var visited = new HashSet<Guid> { folder.Id };
+            while (parent is { } parentId && byId.TryGetValue(parentId, out var parentFolder)
+                && visited.Add(parentId))
+            {
+                counts[parentId] += folder.BookCount;
+                parent = parentFolder.ParentId;
+            }
+        }
+
+        var nodes = folders.ToDictionary(folder => folder.Id, folder => new LibraryTreeNodeViewModel
+        {
+            Kind = LibraryTreeNodeKind.Folder,
+            FolderId = folder.Id,
+            Name = folder.Name,
+            RelativePath = folder.RelativePath,
+            Count = counts[folder.Id],
+            IsSystem = folder.IsSystem,
+            IsExpanded = expanded.GetValueOrDefault(folder.Id, true),
+        });
         LibraryTree.Clear();
         foreach (var folder in folders)
         {
-            var folderNode = new LibraryTreeNodeViewModel
-            {
-                Kind = LibraryTreeNodeKind.Folder,
-                FolderId = folder.Id,
-                Name = folder.Name,
-                Count = folder.BookCount,
-                IsSystem = folder.IsSystem,
-            };
-            folderNode.Children.Add(new LibraryTreeNodeViewModel
-            {
-                Kind = LibraryTreeNodeKind.Unsorted,
-                FolderId = folder.Id,
-                Name = folder.UnsortedName,
-                Count = folder.UnsortedBookCount,
-                IsSystem = true,
-            });
-            foreach (var series in folder.Series)
-            {
-                folderNode.Children.Add(new LibraryTreeNodeViewModel
-                {
-                    Kind = LibraryTreeNodeKind.Series,
-                    FolderId = folder.Id,
-                    SeriesId = series.Id,
-                    Name = series.Name,
-                    Count = series.BookCount,
-                });
-            }
-
-            LibraryTree.Add(folderNode);
+            if (folder.ParentId is { } parentId && nodes.TryGetValue(parentId, out var parent))
+                parent.Children.Add(nodes[folder.Id]);
+            else
+                LibraryTree.Add(nodes[folder.Id]);
         }
 
         SelectedLibraryNode = selectedTarget is { } target
-            ? FindTreeNode(target.FolderId, target.SeriesId, target.Kind)
-            : null;
+            ? FindTreeNode(target.FolderId, null, LibraryTreeNodeKind.Folder) : null;
     }
 
-    private LibraryTreeNodeViewModel? FindTreeNode(
-        Guid folderId,
-        Guid? seriesId,
-        LibraryTreeNodeKind kind)
+    private LibraryTreeNodeViewModel? FindTreeNode(Guid folderId, Guid? seriesId, LibraryTreeNodeKind kind) =>
+        FlattenNodes(LibraryTree).FirstOrDefault(node => node.FolderId == folderId);
+
+    private static IEnumerable<LibraryTreeNodeViewModel> FlattenNodes(IEnumerable<LibraryTreeNodeViewModel> roots)
     {
-        foreach (var folder in LibraryTree)
+        var pending = new Stack<LibraryTreeNodeViewModel>(roots.Reverse());
+        var visited = new HashSet<Guid>();
+        while (pending.TryPop(out var node))
         {
-            if (kind == LibraryTreeNodeKind.Folder && folder.FolderId == folderId)
-            {
-                return folder;
-            }
-
-            var child = folder.Children.FirstOrDefault(node =>
-                node.Kind == kind
-                && node.FolderId == folderId
-                && node.SeriesId == seriesId);
-            if (child is not null)
-            {
-                return child;
-            }
+            if (!visited.Add(node.FolderId)) continue;
+            yield return node;
+            foreach (var child in node.Children.Reverse()) pending.Push(child);
         }
-
-        return null;
     }
 
     private void ClearSelection()

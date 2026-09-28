@@ -35,11 +35,10 @@ public partial class App : Application
             var appPaths = _serviceProvider.GetRequiredService<IAppPaths>();
             appPaths.EnsureDirectories();
 
-            var databaseInitializer = _serviceProvider.GetRequiredService<IDatabaseInitializer>();
-            await databaseInitializer.InitializeAsync(CancellationToken.None);
-
             var settingsService = _serviceProvider.GetRequiredService<IAppSettingsService>();
             var settings = await settingsService.LoadAsync(CancellationToken.None);
+            var databaseInitializer = _serviceProvider.GetRequiredService<IDatabaseInitializer>();
+            await databaseInitializer.InitializeAsync(CancellationToken.None);
             var themeService = _serviceProvider.GetRequiredService<IThemeService>();
             themeService.Apply(settings.Theme);
 

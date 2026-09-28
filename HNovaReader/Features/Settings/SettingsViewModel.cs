@@ -43,6 +43,8 @@ public sealed partial class SettingsViewModel : PageViewModel
         readerHorizontalMargin = settings.HorizontalMargin;
         selectedReadingMode = settings.ReadingMode;
         libraryFolder = settings.LibraryFolder ?? string.Empty;
+        autoUpdateLibrary = settings.AutoUpdateLibrary;
+        libraryUpdateIntervalMinutes = settings.LibraryUpdateIntervalMinutes;
         selectedImportBehavior = settings.ImportBehavior;
         rememberWindowSize = settings.RememberWindowSize;
         defaultTextEncoding = settings.DefaultTextEncoding;
@@ -79,6 +81,12 @@ public sealed partial class SettingsViewModel : PageViewModel
 
     [ObservableProperty]
     private string libraryFolder;
+
+    [ObservableProperty]
+    private bool autoUpdateLibrary;
+
+    [ObservableProperty]
+    private int libraryUpdateIntervalMinutes;
 
     [ObservableProperty]
     private BookStorageMode selectedImportBehavior;
@@ -183,6 +191,8 @@ public sealed partial class SettingsViewModel : PageViewModel
             HorizontalMargin = ReaderHorizontalMargin,
             ReadingMode = SelectedReadingMode,
             LibraryFolder = LibraryFolder,
+            AutoUpdateLibrary = AutoUpdateLibrary,
+            LibraryUpdateIntervalMinutes = LibraryUpdateIntervalMinutes,
             ImportBehavior = SelectedImportBehavior,
             RememberWindowSize = RememberWindowSize,
             DefaultTextEncoding = DefaultTextEncoding,

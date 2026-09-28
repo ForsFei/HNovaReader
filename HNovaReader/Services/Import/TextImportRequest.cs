@@ -8,6 +8,8 @@ public sealed record TextImportRequest
 
     public bool IncludeSubdirectories { get; init; } = true;
 
+    public bool PreserveDirectoryStructure { get; init; } = true;
+
     public BookStorageMode StorageMode { get; init; } = BookStorageMode.ManagedCopy;
 
     public string? ManagedLibraryDirectory { get; init; }

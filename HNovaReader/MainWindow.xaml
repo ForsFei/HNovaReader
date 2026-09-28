@@ -41,8 +41,8 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock VerticalAlignment="Center"
-                           Foreground="{DynamicResource TextPrimaryBrush}"
                            Text="{Binding Name}"
+                           ToolTip="{Binding RelativePath}"
                            TextTrimming="CharacterEllipsis" />
                 <Border Grid.Column="1"
                         MinWidth="24"
@@ -58,12 +58,7 @@
                 </Border>
             </Grid>
         </HierarchicalDataTemplate>
-        <Style x:Key="LibraryTreeItemStyle" TargetType="TreeViewItem">
-            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-            <Setter Property="Padding" Value="4,2" />
-            <Setter Property="Margin" Value="0,1" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        </Style>
+        <Style x:Key="LibraryTreeItemStyle" BasedOn="{StaticResource HNova.LibraryTreeItem}" TargetType="TreeViewItem" />
     </Window.Resources>
 
     <Grid>
@@ -180,15 +175,7 @@
                                     Command="{Binding Library.CreateFolderCommand}"
                                     Content="＋"
                                     Style="{StaticResource HNova.IconButton}"
-                                    ToolTip="新建文件夹" />
-                            <Button Grid.Column="2"
-                                    Width="27"
-                                    Height="27"
-                                    Margin="4,0,0,0"
-                                    Command="{Binding Library.CreateSeriesCommand}"
-                                    Content="▤"
-                                    Style="{StaticResource HNova.IconButton}"
-                                    ToolTip="在所选文件夹中新建系列" />
+                                    ToolTip="在所选目录下新建子文件夹；未选择时在根目录新建" />
                         </Grid>
 
                         <TreeView x:Name="LibraryTree"
@@ -206,9 +193,13 @@
                                   PreviewDragOver="OnLibraryTreeDragOver"
                                   Drop="OnLibraryTreeDrop">
                             <TreeView.ContextMenu>
-                                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                    <MenuItem Command="{Binding Library.CreateFolderCommand}" Header="新建文件夹" />
-                                    <MenuItem Command="{Binding Library.CreateSeriesCommand}" Header="新建系列" />
+                                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                             Style="{StaticResource HNova.ContextMenu}">
+                                    <ContextMenu.Resources>
+                                        <Style BasedOn="{StaticResource HNova.MenuItem}" TargetType="MenuItem" />
+                                        <Style BasedOn="{StaticResource HNova.MenuSeparator}" TargetType="Separator" />
+                                    </ContextMenu.Resources>
+                                    <MenuItem Command="{Binding Library.CreateFolderCommand}" Header="新建子文件夹" />
                                     <Separator />
                                     <MenuItem Command="{Binding Library.RenameLibraryNodeCommand}"
                                               Header="重命名"

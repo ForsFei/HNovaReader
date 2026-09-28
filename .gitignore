@@ -2,6 +2,7 @@
 bin/
 obj/
 artifacts/
+release/
 
 # IDE state
 .vs/

@@ -27,6 +27,7 @@ public sealed class TextFileScanner : ITextFileScanner
     {
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var errors = new List<FileScanError>();
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var inputPath in paths)
         {
@@ -68,6 +69,7 @@ public sealed class TextFileScanner : ITextFileScanner
                     fullPath,
                     includeSubdirectories,
                     files,
+                    directories,
                     errors,
                     progress,
                     cancellationToken);
@@ -79,13 +81,15 @@ public sealed class TextFileScanner : ITextFileScanner
 
         return new TextFileScanResult(
             files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(),
-            errors);
+            errors,
+            directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
     private static void ScanDirectory(
         string rootDirectory,
         bool includeSubdirectories,
         HashSet<string> files,
+        HashSet<string> directories,
         List<FileScanError> errors,
         IProgress<TextImportProgress>? progress,
         CancellationToken cancellationToken)
@@ -102,6 +106,7 @@ public sealed class TextFileScanner : ITextFileScanner
             try
             {
                 entries = Directory.GetFileSystemEntries(currentDirectory);
+                directories.Add(currentDirectory);
             }
             catch (Exception exception) when (IsExpectedFileSystemException(exception))
             {

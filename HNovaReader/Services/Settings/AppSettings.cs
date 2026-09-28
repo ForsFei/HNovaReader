@@ -41,6 +41,10 @@ public sealed record AppSettings
 
     public string? LibraryFolder { get; init; }
 
+    public bool AutoUpdateLibrary { get; init; }
+
+    public int LibraryUpdateIntervalMinutes { get; init; } = 10;
+
     public BookStorageMode ImportBehavior { get; init; } = BookStorageMode.ManagedCopy;
 
     public bool RememberWindowSize { get; init; } = true;
