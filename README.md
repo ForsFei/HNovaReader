@@ -2,6 +2,10 @@
 
 HNovaReader 是一个基于 C#、.NET 8 和 WPF 的完全离线 TXT 书库与阅读器。
 
+[下载安装包（Windows x64）](https://github.com/ForsFei/HNovaReader/releases/download/v1.0.0/HNovaReader-1.0.0-win-x64-Setup.exe) · [最新版本与历史版本](https://github.com/ForsFei/HNovaReader/releases/latest)
+
+安装包已包含 .NET 运行时，下载后双击安装即可。在版本页面的 Assets 中选择 `HNovaReader-版本号-win-x64-Setup.exe`；`Source code` 是源码归档。
+
 主要能力包括：
 
 - CommunityToolkit.Mvvm
@@ -100,6 +104,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Installer.ps1 -V
 安装包默认按当前用户安装到 `%LocalAppData%\Programs\HNovaReader`，不申请管理员权限。提供开始菜单入口、可选桌面快捷方式和卸载入口；固定 AppId 支持后续同一应用升级。安装向导目前为英文，程序自身仍支持中文。卸载仅移除安装文件和快捷方式，不删除 `%LocalAppData%\HNovaReader`、自定义书库或备份。
 
 目前脚本未配置代码签名，分发未签名安装包时 Windows 可能显示安全提示。正式发布前，应在干净的 Windows 环境验证安装、启动、升级和卸载。
+
+### 在 GitHub 发布下载版本
+
+打包后，在仓库的 Releases 页面选择 Draft a new release，为本次发布创建标签（例如 `v1.0.1`），填写版本说明，并将对应的 `HNovaReader-版本号-win-x64-Setup.exe` 拖入附件区域，然后发布。用户即可从 Releases 页下载安装包。版本标签、脚本的 `-Version` 参数和安装包版本应保持一致；安装包作为 Release 附件上传，不提交到源码仓库。发布新版本后同步更新 README 顶部的直接下载链接。
 
 应用数据保存在 `%LocalAppData%\HNovaReader`：
 
