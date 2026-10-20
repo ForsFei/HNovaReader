@@ -25,7 +25,7 @@ if (-not $IsccPath) {
     if ($compilerCommand) { $IsccPath = $compilerCommand.Source }
     foreach ($programDirectory in @(${env:ProgramFiles(x86)}, $env:ProgramFiles, $env:LOCALAPPDATA)) {
         if ($IsccPath -or -not $programDirectory) { continue }
-        foreach ($compilerSuffix in @('Inno Setup 6\ISCC.exe', 'Programs\Inno Setup 6\ISCC.exe')) {
+        foreach ($compilerSuffix in @('Inno Setup 7\ISCC.exe', 'Programs\Inno Setup 7\ISCC.exe', 'Inno Setup 6\ISCC.exe', 'Programs\Inno Setup 6\ISCC.exe')) {
             $compilerCandidate = Join-Path $programDirectory $compilerSuffix
             if (Test-Path -LiteralPath $compilerCandidate -PathType Leaf) { $IsccPath = $compilerCandidate; break }
         }
@@ -35,6 +35,13 @@ if (-not $IsccPath -or -not (Test-Path -LiteralPath $IsccPath -PathType Leaf)) {
     throw 'Inno Setup 6.3+ is required. Install from https://jrsoftware.org/isdl.php or pass -IsccPath to ISCC.exe.'
 }
 $compilerVersion = (Get-Item -LiteralPath $IsccPath).VersionInfo.FileVersionRaw
+if ($compilerVersion -eq [version]'0.0.0.0') {
+    $compilerVersionText = (& $IsccPath --version 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $compilerVersionText -notmatch '\b(\d+\.\d+\.\d+)\b') {
+        throw 'Unable to determine Inno Setup compiler version.'
+    }
+    $compilerVersion = [version]$Matches[1]
+}
 if ($compilerVersion -lt [version]'6.3.0') { throw 'Inno Setup 6.3 or newer is required.' }
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw '.NET 8 SDK or newer is required.' }
 
