@@ -46,10 +46,13 @@ public sealed class AppPaths : IAppPaths
     private static string ResolveDefaultRootDirectory()
     {
         var configuredRoot = Environment.GetEnvironmentVariable(RootOverrideEnvironmentVariable);
-        return string.IsNullOrWhiteSpace(configuredRoot)
-            ? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "HNovaReader")
-            : configuredRoot;
+        if (!string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            return configuredRoot;
+        }
+
+        return File.Exists(Path.Combine(AppContext.BaseDirectory, "portable.mode"))
+            ? Path.Combine(AppContext.BaseDirectory, "Data")
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HNovaReader");
     }
 }

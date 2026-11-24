@@ -99,3 +99,9 @@ dotnet publish HNovaReader/HNovaReader.csproj -c Release -r win-x64 --self-conta
 | `artifacts/installer/` | 本地安装包产物，不提交 Git |
 
 `bin/`、`obj/`、`.vs/` 和临时测试输出可重新生成。清理构建产物时，请保留实际书库、用户数据和 `.hnova-backups/`。
+
+## Windows x64 便携版
+
+从 GitHub Releases 下载 `*-win-x64-portable.zip`，完整解压到可写目录后运行主程序。该包自带 .NET 桌面运行时。请保留程序旁的 `portable.mode` 文件。
+
+数据库、设置和默认托管书库保存在程序目录下的 `Data`。如果设置了 `HNOVAREADER_APP_DATA_ROOT`，它优先确定数据位置。换电脑后需要重新定位外部 TXT 及自定义书库目录。
